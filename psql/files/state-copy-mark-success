@@ -1,0 +1,13 @@
+#!/bin/sh
+# /usr/local/sbin/state-copy-mark-success (lab psql, step jobs): records the time of the last
+# successful worker state-copy for node_exporter's textfile collector (alert StateCopyStale).
+set -eu
+dir=/var/lib/prometheus/node-exporter
+[ -d "$dir" ] || exit 0
+tmp="$dir/.stellar_state_copy.prom.$$"
+{
+    echo '# HELP stellar_state_copy_last_success_timestamp_seconds Unix time of the last successful worker state-copy.'
+    echo '# TYPE stellar_state_copy_last_success_timestamp_seconds gauge'
+    echo "stellar_state_copy_last_success_timestamp_seconds $(date +%s)"
+} > "$tmp"
+mv "$tmp" "$dir/stellar_state_copy.prom"

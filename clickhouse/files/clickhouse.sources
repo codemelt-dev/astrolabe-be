@@ -1,0 +1,9 @@
+# /etc/apt/sources.list.d/clickhouse.sources (lab clickhouse, step clickhouse): ClickHouse's apt
+# repository, LTS channel, with its key as lab downloads it (checked by SHA-256; fingerprint
+# 3A9EA1193A97B548BE1457D48919F6BD2B48D754). The packages are pinned and held.
+Types: deb
+URIs: https://packages.clickhouse.com/deb
+Suites: lts
+Components: main
+Architectures: amd64
+Signed-By: /usr/share/keyrings/clickhouse-keyring.asc

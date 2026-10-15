@@ -1,0 +1,14 @@
+# stellar-ingest.service — everything else; redeploy any time
+[Unit]
+Wants=network-online.target stellar-lake.service
+After=network-online.target stellar-lake.service
+StartLimitIntervalSec=0
+[Service]
+User=stellar
+ExecStart=/usr/local/bin/worker ingest
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+Environment=GOMEMLIMIT=6GiB
+[Install]
+WantedBy=multi-user.target

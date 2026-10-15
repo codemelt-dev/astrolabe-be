@@ -1,0 +1,229 @@
+<?xml version="1.0"?>
+<!-- /etc/clickhouse-server/users.d/10-stellar.xml (lab clickhouse, step clickhouse): the users,
+     their profiles and quotas (README §5.3). Passwords are not here: lab writes their SHA-256 into
+     users.d/90-passwords.xml from /etc/stellar/secrets/, which also removes default's empty one. -->
+<clickhouse>
+    <profiles>
+        <!-- The pipeline and the backfill: batches of up to 512 MiB of prepared rows. -->
+        <writer>
+            <max_memory_usage>8000000000</max_memory_usage>
+        </writer>
+
+        <!-- Grafana. readonly = 2: may read and adjust settings within the constraints, never
+             write or change readonly itself. -->
+        <reader>
+            <readonly>2</readonly>
+            <max_execution_time>30</max_execution_time>
+            <max_memory_usage>4000000000</max_memory_usage>
+            <max_threads>4</max_threads>
+            <max_concurrent_queries_for_user>8</max_concurrent_queries_for_user>
+            <max_result_rows>1000000</max_result_rows>
+            <constraints>
+                <max_execution_time><max>60</max></max_execution_time>
+                <max_memory_usage><max>4000000000</max></max_memory_usage>
+                <max_threads><max>4</max></max_threads>
+            </constraints>
+        </reader>
+
+        <!-- The public SQL endpoint behind the psql host's Caddy (README §8): tighter than Grafana's,
+             and its own user and quota, so the public can't use up Grafana's. -->
+        <public>
+            <readonly>2</readonly>
+            <max_execution_time>10</max_execution_time>
+            <max_memory_usage>2000000000</max_memory_usage>
+            <max_threads>2</max_threads>
+            <max_concurrent_queries_for_user>10</max_concurrent_queries_for_user>
+            <max_result_rows>100000</max_result_rows>
+            <max_result_bytes>100000000</max_result_bytes>
+            <!-- JSON formats quote 64-bit and larger integers, which JavaScript can't hold exactly. -->
+            <output_format_json_quote_64bit_integers>1</output_format_json_quote_64bit_integers>
+            <constraints>
+                <max_execution_time><max>10</max></max_execution_time>
+                <max_memory_usage><max>2000000000</max></max_memory_usage>
+                <max_threads><max>2</max></max_threads>
+                <max_result_rows><max>100000</max></max_result_rows>
+                <max_result_bytes><max>100000000</max></max_result_bytes>
+            </constraints>
+        </public>
+
+        <!-- The frontend's backend (codemelt; Caddy logs in as stellar_api for it, README §8): read
+             only, its own limits. Page queries read a few rows by key: one thread and the uncompressed
+             cache made them 3× faster; a query that scans may raise max_threads to 4.
+             Measured on 2026-10-09 with the frontend's page queries: at most 0.33 s, 53 MB and 50 rows each; the
+             server peaks at ~1,350 a second from 8 concurrent on (latency grows, throughput doesn't),
+             while ingest keeps up. Hence 10 s and 1 GB a query, 4 GB in all, 16 at once. -->
+        <api>
+            <readonly>2</readonly>
+            <max_execution_time>10</max_execution_time>
+            <max_memory_usage>1000000000</max_memory_usage>
+            <max_memory_usage_for_user>4000000000</max_memory_usage_for_user>
+            <max_threads>1</max_threads>
+            <use_uncompressed_cache>1</use_uncompressed_cache>
+            <max_concurrent_queries_for_user>16</max_concurrent_queries_for_user>
+            <max_result_rows>1000000</max_result_rows>
+            <output_format_json_quote_64bit_integers>1</output_format_json_quote_64bit_integers>
+            <constraints>
+                <max_execution_time><max>10</max></max_execution_time>
+                <max_memory_usage><max>1000000000</max></max_memory_usage>
+                <max_memory_usage_for_user><max>4000000000</max></max_memory_usage_for_user>
+                <max_threads><max>4</max></max_threads>
+                <max_result_rows><max>1000000</max></max_result_rows>
+            </constraints>
+        </api>
+
+        <!-- worker state-copy from the psql host (README §10): the state copy and the rankings. -->
+        <jobs>
+            <max_memory_usage>6000000000</max_memory_usage>
+            <max_execution_time>1800</max_execution_time>
+        </jobs>
+    </profiles>
+
+    <!-- An exceeded quota refuses the user's queries until the hour ends. Refused queries count as
+         errors (too many at once, a quota, bad SQL), so no errors limit is below the queries limit:
+         one burst would lock the user out for the hour. The api quota allows Caddy's budget for the
+         backend (2,000 per 10 s) all hour, so Caddy's 429s, gone in seconds, come first. -->
+    <quotas>
+        <reader>
+            <interval>
+                <duration>3600</duration>
+                <queries>20000</queries>
+                <errors>2000</errors>
+                <execution_time>7200</execution_time>
+            </interval>
+        </reader>
+        <public>
+            <interval>
+                <duration>3600</duration>
+                <queries>30000</queries>
+                <errors>30000</errors>
+                <execution_time>3600</execution_time>
+            </interval>
+        </public>
+        <api>
+            <interval>
+                <duration>3600</duration>
+                <queries>720000</queries>
+                <errors>720000</errors>
+                <execution_time>14400</execution_time>
+            </interval>
+        </api>
+    </quotas>
+
+    <users>
+        <!-- The administrator: lab and the operator's clickhouse-client, on this host only. -->
+        <default>
+            <networks replace="replace">
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+        </default>
+
+        <!-- worker clickhouse-migrate: the schema of database stellar. -->
+        <stellar_owner>
+            <profile>default</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+            <grants>
+                <query>GRANT SELECT, INSERT, ALTER, CREATE TABLE, CREATE VIEW, DROP TABLE, DROP VIEW, TRUNCATE, OPTIMIZE ON stellar.*</query>
+            </grants>
+        </stellar_owner>
+
+        <!-- worker clickhouse-ingest (and a later clickhouse-backfill). ALTER DELETE: the recovery delete above the
+             cursor (README §7.3). -->
+        <stellar_writer>
+            <profile>writer</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+            <grants>
+                <query>GRANT SELECT, INSERT, ALTER DELETE ON stellar.*</query>
+            </grants>
+        </stellar_writer>
+
+        <!-- Grafana: read-only, from this host and the psql host (over 8443/9440, README §5.4). The
+             system tables are its query editor's schema browser. -->
+        <stellar_reader>
+            <profile>reader</profile>
+            <quota>reader</quota>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+                <ip>10.0.1.2</ip>
+            </networks>
+            <grants>
+                <query>GRANT SELECT ON stellar.*</query>
+                <query>GRANT SELECT ON system.databases</query>
+                <query>GRANT SELECT ON system.tables</query>
+                <query>GRANT SELECT ON system.columns</query>
+            </grants>
+        </stellar_reader>
+
+        <!-- The frontend's backend: basic auth as stellar_api on the public SQL endpoint, which Caddy
+             on the psql host passes through (README §8). -->
+        <stellar_api>
+            <profile>api</profile>
+            <quota>api</quota>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+                <ip>10.0.1.2</ip>
+            </networks>
+            <grants>
+                <query>GRANT SELECT ON stellar.*</query>
+            </grants>
+        </stellar_api>
+
+        <!-- worker state-copy on the psql host (README §10): may replace the state copy and the
+             rankings, append the snapshots, and read what the rankings need; nothing else. EXCHANGE
+             TABLES needs SELECT, INSERT, CREATE TABLE and DROP TABLE on both tables. -->
+        <stellar_jobs>
+            <profile>jobs</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>10.0.1.2</ip>
+            </networks>
+            <grants>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_accounts</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_accounts_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_trustlines</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_trustlines_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_sac_balances</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_sac_balances_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_asset_contracts</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_asset_contracts_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_claimable_balances</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_claimable_balances_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_liquidity_pools</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_liquidity_pools_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.assets</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.assets_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.top_holders</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.top_holders_new</query>
+                <query>GRANT SELECT, INSERT, ALTER DELETE ON stellar.asset_snapshots</query>
+                <query>GRANT SELECT, INSERT, ALTER DELETE ON stellar.holder_snapshots</query>
+                <query>GRANT SELECT, INSERT ON stellar.state_copy_runs</query>
+                <query>GRANT SELECT ON stellar.transfers_by_account</query>
+                <query>GRANT SELECT ON stellar.contract_creations</query>
+            </grants>
+        </stellar_jobs>
+
+        <!-- The public SQL endpoint: Caddy on the psql host logs in as it for every request. -->
+        <stellar_public>
+            <profile>public</profile>
+            <quota>public</quota>
+            <networks>
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+                <ip>10.0.1.2</ip>
+            </networks>
+            <grants>
+                <query>GRANT SELECT ON stellar.*</query>
+            </grants>
+        </stellar_public>
+    </users>
+</clickhouse>

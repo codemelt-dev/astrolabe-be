@@ -1,0 +1,205 @@
+# /etc/prometheus/rules/galexie-alerts.yml (lab psql, step monitoring): alert
+# rules for the galexie host (galexie/README.md §7.5). Prometheus runs on the
+# psql host; lab psql embeds this file and installs it rendered with the psql
+# host's settings (test: cli/cli_test.go).
+#
+# Scrape jobs these rules assume (Prometheus on the psql host scrapes this
+# host over the private network; see psql/README.md, monitoring):
+#   job="lake"     10.0.0.2:9101  (lake: /metrics)
+#   job="ingest"   10.0.0.2:9102  (ingest: /metrics; also the watchdog's
+#                                  and the gap check's last results)
+#   job="galexie"  10.0.0.2:6061  (Galexie's admin port)
+# severity: page (wake someone) or warning (look during working hours), as
+# routed by Alertmanager on the psql host. The always-firing heartbeat is
+# in the psql host's own rules (psql/files/alerts.yml).
+# Validate with: promtool check rules alerts.yml
+groups:
+  - name: stellar-lake
+    rules:
+      - alert: LakeDown
+        expr: up{job="lake"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations:
+          summary: "The lake is down: Galexie cannot upload (systemctl status stellar-lake)."
+      - alert: LakeFsyncFailed
+        expr: max(lake_fsync_failed) == 1
+        labels: {severity: page}
+        annotations:
+          summary: "An fsync failed after a link: the lake is fail-closed (every PUT gets 503). Investigate the Volume, then restart the lake."
+      - alert: LakeVolumeIOStall
+        expr: max(lake_put_phase_age_seconds{phase="syncing"}) > 30
+        labels: {severity: page}
+        annotations:
+          summary: "A lake PUT has been in fsync for {{ $value | humanizeDuration }}: Volume I/O stall. The watchdog will not restart Galexie; fix the Volume."
+      - alert: LakeStartupHoles
+        expr: max(lake_startup_scan_holes) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "The post-reboot scan deleted corrupt objects below good ones: repair the holes with scan-and-fill (galexie/README.md §7.4.8)."
+      - alert: LakeDiskHigh
+        expr: max(lake_disk_bytes{kind="used"}) / max(lake_disk_bytes{kind="size"}) > 0.70
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "/srv/lake is {{ $value | humanizePercentage }} full."
+      - alert: LakeDiskCritical
+        expr: max(lake_disk_bytes{kind="used"}) / max(lake_disk_bytes{kind="size"}) > 0.85
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "/srv/lake is {{ $value | humanizePercentage }} full: a full disk stops Galexie (507). Emergency-prune archived ledgers or grow the Volume."
+
+  - name: stellar-ingest
+    rules:
+      - alert: IngestDown
+        expr: up{job="ingest"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "worker ingest is down: nothing is committed, archived or pruned."
+      - alert: IngestLakeUnreachable
+        expr: max(ingest_lake_up{job="ingest"}) == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "ingest cannot reach the lake's control endpoint."
+      - alert: PipelineStall
+        # Behind the network while the network advances: a pipeline stall,
+        # not a network halt.
+        expr: (max(stellar_network_tip) - max(ingest_cursor{pipeline="explorer"})) > 120 and on() max(delta(stellar_network_tip[10m])) > 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "The explorer pipeline is {{ $value }} ledgers behind the network, which is advancing."
+      - alert: NetworkHalt
+        expr: max(delta(stellar_network_tip[10m])) == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations:
+          summary: "The network tip (AWS public lake) has not moved for 15 min: network halt or AWS lake stall; Galexie and ingest wait."
+      - alert: NetworkTipStale
+        expr: time() - max(stellar_network_tip_updated_seconds) > 600
+        labels: {severity: warning}
+        annotations:
+          summary: "ingest cannot read the network tip (AWS public lake): lag alerts are blind."
+      - alert: PipelineLagBehindLake
+        expr: max by (pipeline) (ingest_lag_ledgers{job="ingest"}) > 120
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "Pipeline {{ $labels.pipeline }} is {{ $value }} ledgers behind the lake tip."
+      - alert: PipelineHalted
+        expr: increase(stellar_alerts_total{job="ingest", kind="pipeline_halted"}[15m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "The explorer pipeline halted without advancing (validation, hash chain or sink error): see journalctl -u stellar-ingest."
+      - alert: LedgerLatencyHigh
+        expr: histogram_quantile(0.9, sum by (le) (rate(ingest_ledger_latency_seconds_bucket{job="ingest"}[10m]))) > 5
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "p90 ledger latency (lake commit → Postgres commit) is {{ $value | humanizeDuration }}."
+      - alert: ConflictRows
+        expr: increase(explorer_conflict_rows_total[1h]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "Rows already present were skipped (explorer_conflict_rows_total should stay 0)."
+      - alert: StateDrift
+        expr: increase(explorer_state_drift_total[1h]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "An eviction found no state row: the state tables drifted (repair with worker bootstrap --force)."
+      - alert: CoreDiskHigh
+        expr: max(stellar_disk_bytes{mount="core",kind="used"}) / max(stellar_disk_bytes{mount="core",kind="size"}) > 0.70
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "/srv/core is {{ $value | humanizePercentage }} full."
+      - alert: CoreDiskCritical
+        expr: max(stellar_disk_bytes{mount="core",kind="used"}) / max(stellar_disk_bytes{mount="core",kind="size"}) > 0.85
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "/srv/core is {{ $value | humanizePercentage }} full."
+      - alert: IngestAlert
+        expr: increase(stellar_alerts_total{job="ingest", kind!="pipeline_halted"}[15m]) > 0
+        labels: {severity: warning}
+        annotations:
+          summary: "ingest raised alert {{ $labels.kind }}: see journalctl -u stellar-ingest (alert={{ $labels.kind }})."
+
+  - name: stellar-archive
+    rules:
+      - alert: ArchiveTipUnknown
+        expr: max(archive_tip_known) == 0
+        for: 15m
+        labels: {severity: page}
+        annotations:
+          summary: "The archive tip is unknown: nothing is archived or pruned (archive down, or archive_origin missing)."
+      - alert: ArchiveStalled
+        # The archiver copies in order: a stuck archive tip while the lake tip moves means it is blocked.
+        expr: max(delta(archive_tip[15m])) == 0 and on() max(delta(lake_tip[15m])) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "The archive tip has not advanced for 15 min while the lake tip has: the lake grows ~3.3 GB/day until it does."
+      - alert: ArchiverBlocked
+        expr: max by (reason) (archiver_blocked) == 1
+        for: 10m
+        labels: {severity: page}
+        annotations:
+          summary: "The archiver is blocked: {{ $labels.reason }} (missing/invalid: repair the lake object; halted: the archive holds a different ledger)."
+      - alert: ArchiveGaps
+        expr: max(gapcheck_missing_ledgers) > 0 or max(gapcheck_invalid_objects) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "The weekly gap check found gaps or invalid objects in the archive: see /var/lib/stellar-gapcheck/result.json."
+      - alert: GapcheckFailed
+        expr: max(gapcheck_failed) == 1
+        labels: {severity: warning}
+        annotations:
+          summary: "The last gap check could not run: journalctl -u stellar-gapcheck."
+      - alert: GapcheckStale
+        expr: time() - max(gapcheck_last_run_seconds) > 8 * 86400
+        labels: {severity: warning}
+        annotations:
+          summary: "No gap check for more than 8 days (stellar-gapcheck.timer)."
+
+  - name: stellar-galexie
+    rules:
+      - alert: GalexieDown
+        expr: up{job="galexie"} == 0
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Galexie's admin endpoint does not answer (held with systemctl stop, or restarting)."
+      - alert: GalexieRestarting
+        expr: increase(galexie_systemd_restarts[30m]) > 3
+        labels: {severity: page}
+        annotations:
+          summary: "stellar-galexie keeps restarting (manifest mismatch, lake refusing PUTs, or a crash loop)."
+      - alert: GalexieUploaderLag
+        expr: (max(stellar_network_tip) - max(galexie_uploader_latest_ledger)) > 120
+        for: 10m
+        labels: {severity: warning}
+        annotations:
+          summary: "Galexie's uploader is {{ $value }} ledgers behind the network tip."
+      - alert: WatchdogRestartedGalexie
+        expr: max(watchdog_restarts_in_a_row) >= 2
+        labels: {severity: page}
+        annotations:
+          summary: "The watchdog restarted Galexie {{ $value }} times in a row without upload progress."
+      - alert: WatchdogLakeIOStall
+        expr: max(watchdog_alert{kind="lake_io_stall"}) == 1
+        labels: {severity: page}
+        annotations:
+          summary: "The watchdog sees a lake PUT stuck in fsync: Volume I/O stall (Galexie is not restarted)."
+      - alert: WatchdogCondition
+        expr: max by (kind) (watchdog_alert{kind!="lake_io_stall"}) == 1
+        labels: {severity: warning}
+        annotations:
+          summary: "Watchdog: {{ $labels.kind }} (galexie_no_first_upload: captive-core catchup taking long; galexie_uploader_lag; galexie_upload_hung)."
+      - alert: WatchdogNotRunning
+        expr: time() - max(watchdog_last_run_seconds) > 120
+        labels: {severity: warning}
+        annotations:
+          summary: "The watchdog has not run for 2 min (stellar-watchdog.timer)."

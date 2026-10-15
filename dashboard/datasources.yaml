@@ -1,0 +1,13 @@
+# /etc/grafana/provisioning/datasources/stellar-explorer.yaml (lab psql, step grafana): this host's
+# Prometheus, which scrapes both hosts. Read at Grafana's start.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s

@@ -1,0 +1,37 @@
+# /etc/caddy/sites/grafana.caddy (lab psql, step grafana, when grafana_hostname is set): Grafana's
+# public front, imported by the Caddyfile (dashboard/README.md). Grafana keeps listening on loopback;
+# its login guards it: no sign-up, no anonymous access, and its own lockout after failed logins.
+grafana.example.com {
+	log {
+		output file /var/log/caddy/grafana.log {
+			roll_size 100MiB
+			roll_keep 10
+			roll_keep_for 336h
+		}
+	}
+
+	encode zstd gzip
+
+	# Login attempts per client IP (IPv6 per /64): 10 a minute, on top of Grafana's lockout.
+	rate_limit {
+		zone grafana_login {
+			match {
+				method POST
+				path /login
+			}
+			key {client_ip}
+			window 1m
+			events 10
+			ipv6_prefix 64
+		}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:3002
+}

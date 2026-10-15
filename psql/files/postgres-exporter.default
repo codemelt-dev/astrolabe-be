@@ -1,0 +1,4 @@
+# /etc/default/prometheus-postgres-exporter (lab psql, step monitoring): on loopback only, as the role
+# postgres_exporter by peer authentication (pg_ident.conf maps the OS user prometheus to it).
+DATA_SOURCE_NAME='user=postgres_exporter host=/var/run/postgresql dbname=explorer'
+ARGS="--web.listen-address=127.0.0.1:9187"

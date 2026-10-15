@@ -1,0 +1,146 @@
+# Simulations of the alert rules: the lag, stall, fsync and gap check
+# alerts fire when they should. Run: promtool test rules alerts_test.yml
+rule_files:
+  - alerts.yml
+evaluation_interval: 1m
+tests:
+  # Pipeline stall: the network advances (12 ledgers/min), the cursor is stuck.
+  - interval: 1m
+    input_series:
+      - series: 'stellar_network_tip{job="ingest"}'
+        values: '1000+12x40'
+      - series: 'stellar_network_tip_updated_seconds{job="ingest"}'
+        values: '60+60x40'
+      - series: 'ingest_cursor{job="ingest",pipeline="explorer"}'
+        values: '1000x40'
+    alert_rule_test:
+      - eval_time: 9m
+        alertname: PipelineStall
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: PipelineStall
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The explorer pipeline is 240 ledgers behind the network, which is advancing."
+      - eval_time: 20m
+        alertname: NetworkHalt
+        exp_alerts: []
+
+  # Network halt: the network tip stops; the pipeline is caught up to it.
+  # A halt is not a pipeline stall.
+  - interval: 1m
+    input_series:
+      - series: 'stellar_network_tip{job="ingest"}'
+        values: '1000+12x10 1120x30'
+      - series: 'stellar_network_tip_updated_seconds{job="ingest"}'
+        values: '60+60x40'
+      - series: 'ingest_cursor{job="ingest",pipeline="explorer"}'
+        values: '1000+12x10 1120x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: NetworkHalt
+        exp_alerts:
+          - exp_labels: {severity: warning}
+            exp_annotations:
+              summary: "The network tip (AWS public lake) has not moved for 15 min: network halt or AWS lake stall; Galexie and ingest wait."
+      - eval_time: 30m
+        alertname: PipelineStall
+        exp_alerts: []
+
+  # Lake fsync failure and a Volume I/O stall (a PUT in syncing > 30 s).
+  - interval: 1m
+    input_series:
+      - series: 'lake_fsync_failed{job="lake"}'
+        values: '0 0 1 1'
+      - series: 'lake_put_phase_age_seconds{job="lake",phase="syncing"}'
+        values: '0 20 40 100'
+      - series: 'lake_put_phase_age_seconds{job="lake",phase="receiving"}'
+        values: '0 0 0 0'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: LakeFsyncFailed
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: LakeFsyncFailed
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "An fsync failed after a link: the lake is fail-closed (every PUT gets 503). Investigate the Volume, then restart the lake."
+      - eval_time: 1m
+        alertname: LakeVolumeIOStall
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: LakeVolumeIOStall
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "A lake PUT has been in fsync for 40s: Volume I/O stall. The watchdog will not restart Galexie; fix the Volume."
+
+  # Gap check: a clean run, then gaps.
+  - interval: 1m
+    input_series:
+      - series: 'gapcheck_missing_ledgers{job="ingest"}'
+        values: '0 0 3 3'
+      - series: 'gapcheck_invalid_objects{job="ingest"}'
+        values: '0 0 0 0'
+      - series: 'gapcheck_failed{job="ingest"}'
+        values: '0 0 0 0'
+      - series: 'gapcheck_last_run_seconds{job="ingest"}'
+        values: '0 0 120 120'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ArchiveGaps
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: ArchiveGaps
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The weekly gap check found gaps or invalid objects in the archive: see /var/lib/stellar-gapcheck/result.json."
+
+  # The archive tip stops while the lake tip advances.
+  - interval: 1m
+    input_series:
+      - series: 'archive_tip{job="ingest"}'
+        values: '1000+12x5 1060x30'
+      - series: 'archive_tip_known{job="ingest"}'
+        values: '1x35'
+      - series: 'lake_tip{job="lake"}'
+        values: '1000+12x35'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: ArchiveStalled
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: ArchiveStalled
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The archive tip has not advanced for 15 min while the lake tip has: the lake grows ~3.3 GB/day until it does."
+
+  # Watchdog: two restarts in a row page; a halted pipeline pages.
+  - interval: 1m
+    input_series:
+      - series: 'watchdog_restarts_in_a_row{job="ingest"}'
+        values: '0 1 2'
+      - series: 'watchdog_last_run_seconds{job="ingest"}'
+        values: '0 60 120'
+      - series: 'stellar_alerts_total{job="ingest",kind="pipeline_halted"}'
+        values: '0 0 1'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: WatchdogRestartedGalexie
+        exp_alerts: []
+      - eval_time: 2m
+        alertname: WatchdogRestartedGalexie
+        exp_alerts:
+          - exp_labels: {severity: page}
+            exp_annotations:
+              summary: "The watchdog restarted Galexie 2 times in a row without upload progress."
+      - eval_time: 2m
+        alertname: PipelineHalted
+        exp_alerts:
+          - exp_labels: {severity: page, job: ingest, kind: pipeline_halted}
+            exp_annotations:
+              summary: "The explorer pipeline halted without advancing (validation, hash chain or sink error): see journalctl -u stellar-ingest."

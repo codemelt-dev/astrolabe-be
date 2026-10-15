@@ -1,0 +1,15 @@
+{
+  "name": "stellar-explorer-generated",
+  "private": true,
+  "type": "module",
+  "description": "Generates api.ts, the TypeScript types of the explorer API (schema api), from a database with psql/api.sql applied.",
+  "scripts": {
+    "gen": "node gen.mjs > api.ts.new && mv api.ts.new api.ts",
+    "check": "node gen.mjs | diff -u api.ts - && echo api.ts is current"
+  },
+  "devDependencies": {
+    "@supabase/postgrest-typegen": "0.4.0",
+    "oxfmt": "0.66.0",
+    "pg": "8.23.1"
+  }
+}

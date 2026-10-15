@@ -1,0 +1,14 @@
+# /etc/netplan/60-vswitch.yaml (lab clickhouse, step network): the private network's VLAN (README §2.1, as the psql host: psql/README.md §2.3).
+# The public interface stays as the installer wrote it in 01-netcfg.yaml; netplan merges the files.
+network:
+  version: 2
+  vlans:
+    enp5s0.4000:
+      id: 4000
+      link: enp5s0
+      mtu: 1400
+      addresses:
+        - 10.0.2.2/24
+      routes:
+        - to: 10.0.0.0/16
+          via: 10.0.2.1

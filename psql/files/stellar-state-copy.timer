@@ -1,0 +1,13 @@
+# /etc/systemd/system/stellar-state-copy.timer (lab psql, step jobs): daily, after midnight UTC, so
+# the snapshots are dated the day that just ended.
+[Unit]
+Description=Daily worker state-copy
+
+[Timer]
+OnCalendar=*-*-* 00:15:00 UTC
+Persistent=true
+RandomizedDelaySec=60
+Unit=stellar-state-copy.service
+
+[Install]
+WantedBy=timers.target

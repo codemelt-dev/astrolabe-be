@@ -1,0 +1,14 @@
+# /etc/prometheus/scrape.d/clickhouse.yml (lab psql, step clickhouse, with monitoring): the clickhouse
+# host's jobs over the private network (rules: clickhouse-alerts.yml, from clickhouse/files/alerts.yml).
+scrape_configs:
+  - job_name: clickhouse              # ClickHouse's own endpoint
+    static_configs:
+      - targets: ['10.0.2.2:9363']
+  - job_name: clickhouse_node
+    static_configs:
+      - targets: ['10.0.2.2:9100']
+  - job_name: clickhouse_ingest       # the clickhouse pipeline, every ledger like lake and ingest
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    static_configs:
+      - targets: ['10.0.2.2:9103']

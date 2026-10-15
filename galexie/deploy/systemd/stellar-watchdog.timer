@@ -1,0 +1,9 @@
+# stellar-watchdog.timer — every 30 s runs /usr/local/bin/worker-lake watchdog
+[Unit]
+Description=Run the Stellar Galexie watchdog every 30 s
+[Timer]
+OnBootSec=60s
+OnUnitActiveSec=30s
+AccuracySec=1s
+[Install]
+WantedBy=timers.target

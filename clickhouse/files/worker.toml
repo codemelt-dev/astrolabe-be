@@ -1,0 +1,34 @@
+# /etc/stellar/worker.toml (lab clickhouse, step config) — the worker's config on the clickhouse
+# host (README §7.1): a [clickhouse] section, and neither [lake] nor [postgres]. Values shown
+# are the defaults unless marked "set".
+# Unknown keys are rejected. All paths must be absolute.
+#   install -m 0640 -o root -g stellar worker.toml /etc/stellar/worker.toml
+
+log_level = "info"                         # debug, info, warn, error
+
+[credentials]
+archive_env = "/etc/stellar/archive.env"   # archive endpoint + the reader key, for clickhouse-init only
+
+[archive]
+bucket = "stellar-ledgers-pubnet"          # set: clickhouse-init reads its oldest ledger; this host never runs the archiver
+path_style = false
+
+[clickhouse]
+addr = "127.0.0.1:9000"                    # native protocol, loopback
+database = "stellar"
+user = "stellar_writer"                    # ingest, init, backfill, check
+password_file = "/etc/stellar/clickhouse-writer.password"
+migrate_user = "stellar_owner"             # worker clickhouse-migrate only
+migrate_password_file = "/etc/stellar/clickhouse-owner.password"
+tip_poll = "5s"                            # how often the AWS public lake's newest ledger is read
+
+[ingest]
+lake_grace = "2m"                          # the AWS lake unreadable this long: alert (lake_unavailable); reads keep retrying
+max_batch_ledgers = 500                    # at most 500
+max_batch_mib = 512                        # at most 512
+
+[metrics]
+listen = "127.0.0.1:9103"                  # /metrics, /healthz, /readyz
+private_listen = "10.0.2.2:9103"           # set: <private IP>:9103 (best-effort bind), for Prometheus
+ready_max_lag = 120                        # /readyz fails beyond this many ledgers behind the AWS lake's tip
+network_tip = true                         # report the AWS public lake's tip as the network tip

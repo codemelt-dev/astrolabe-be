@@ -1,0 +1,3 @@
+# The lake's line in /etc/fstab (lab galexie, step disks): the Volume by id, xfs. nofail lets
+# the host boot without it; stellar-lake.service waits for the mount (RequiresMountsFor).
+/dev/disk/by-id/scsi-0HC_Volume_100123456 /srv/lake xfs discard,nofail,defaults 0 2

@@ -1,0 +1,14 @@
+#!/bin/sh
+# /usr/local/sbin/pgbackrest-mark-success <type> (lab psql, step backups): records the time of the
+# last successful backup of <type> for node_exporter's textfile collector (alert PostgresBackupStale).
+set -eu
+type="$1"
+dir=/var/lib/prometheus/node-exporter
+[ -d "$dir" ] || exit 0
+tmp="$dir/.pgbackrest_$type.prom.$$"
+{
+    echo '# HELP pgbackrest_last_success_timestamp_seconds Unix time of the last successful pgBackRest backup.'
+    echo '# TYPE pgbackrest_last_success_timestamp_seconds gauge'
+    echo "pgbackrest_last_success_timestamp_seconds{type=\"$type\"} $(date +%s)"
+} > "$tmp"
+mv "$tmp" "$dir/pgbackrest_$type.prom"

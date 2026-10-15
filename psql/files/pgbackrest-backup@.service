@@ -1,0 +1,16 @@
+# /etc/systemd/system/pgbackrest-backup@.service (lab psql, step backups): one backup of type %i
+# (full, diff), started by the timers or by hand.
+[Unit]
+Description=pgBackRest %i backup of stanza explorer
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/usr/bin/pgbackrest --stanza=explorer --type=%i backup
+# "+" runs the marker as root: the textfile directory belongs to node_exporter's package.
+ExecStartPost=+/usr/local/sbin/pgbackrest-mark-success %i
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

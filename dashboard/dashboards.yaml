@@ -1,0 +1,12 @@
+# /etc/grafana/provisioning/dashboards/stellar-explorer.yaml (lab psql, step grafana): the
+# dashboards from the repository's dashboard/ folder, read again every 30 s. Change them there.
+apiVersion: 1
+providers:
+  - name: stellar-explorer
+    folder: Stellar explorer
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards/stellar-explorer

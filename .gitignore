@@ -1,0 +1,31 @@
+# Go build outputs
+/bin/
+/worker/bin/
+/worker/worker
+/worker/worker-*
+*.exe
+*.test
+*.out
+*.prof
+
+# generated/: the generator's dependencies (npm ci)
+/generated/node_modules/
+
+# Go test and coverage caches
+coverage.*
+*.coverprofile
+
+# Local data (lakes, scratch state, credentials used for local runs)
+/local/
+/data/
+# The deployed stack's addresses and keys: never committed
+/STACK.md
+*.env
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+.work

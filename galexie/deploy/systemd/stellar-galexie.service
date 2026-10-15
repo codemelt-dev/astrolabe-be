@@ -1,0 +1,22 @@
+# stellar-galexie.service
+[Unit]
+Wants=stellar-lake.service network-online.target
+PartOf=stellar-lake.service
+Requires=docker.service
+After=stellar-lake.service docker.service network-online.target
+StartLimitIntervalSec=0
+[Service]
+RuntimeDirectory=stellar-galexie
+EnvironmentFile=-/run/stellar-galexie/galexie.env
+ExecStartPre=-/usr/bin/docker rm -f stellar-galexie
+ExecStartPre=/usr/local/bin/worker-lake galexie-start --out /run/stellar-galexie/galexie.env
+ExecStart=/usr/bin/docker run --rm --name stellar-galexie --init --network host --stop-timeout 45 \
+    -v /srv/core:/srv/core -v /etc/stellar/galexie.toml:/config.toml:ro --env-file /etc/stellar/gateway.env \
+    stellar/stellar-galexie:29.0.0@sha256:5269dfd9034948f3db8dd7595fe8aec88aae5480f712a78e2dea48a841d495a3 append --start ${START} --config-file /config.toml
+ExecStop=-/usr/bin/docker stop -t 45 stellar-galexie
+TimeoutStartSec=120
+TimeoutStopSec=60
+Restart=always
+RestartSec=5
+[Install]
+WantedBy=multi-user.target

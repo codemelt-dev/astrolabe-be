@@ -1,0 +1,7 @@
+# /etc/apt/sources.list.d/pgdg.sources (lab psql, step postgres): the PostgreSQL apt repository
+# (PGDG), as postgresql-common's apt.postgresql.org.sh writes it, with the key that package ships.
+Types: deb
+URIs: https://apt.postgresql.org/pub/repos/apt
+Suites: noble-pgdg
+Components: main
+Signed-By: /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc

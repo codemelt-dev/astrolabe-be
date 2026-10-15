@@ -1,0 +1,4 @@
+# /etc/apt/sources.list.d/docker.list (lab galexie, step docker): Docker's apt repository for
+# Ubuntu 24.04, signed by /etc/apt/keyrings/docker.asc (fingerprint 9DC8 5822 9FC7 DD38 854A
+# E2D8 8D81 803C 0EBF CD88, downloaded from https://download.docker.com/linux/ubuntu/gpg).
+deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable

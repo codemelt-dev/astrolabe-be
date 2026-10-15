@@ -1,0 +1,17 @@
+# /etc/stellar/worker.toml (lab psql, step jobs) — the worker's config on the psql host, where it
+# only runs `worker state-copy` (clickhouse/README.md §10): it reads PostgreSQL over the Unix
+# socket as state_reader (peer authentication: the OS user stellar) and writes ClickHouse as
+# stellar_jobs over TLS on the private network. Unknown keys are rejected; paths are absolute.
+#   install -m 0640 -o root -g stellar worker.toml /etc/stellar/worker.toml
+
+log_level = "info"
+
+[postgres]
+dsn = "host=/var/run/postgresql dbname=explorer user=state_reader application_name=state-copy"
+
+[clickhouse]
+addr = "10.0.2.2:9440"                     # set: <clickhouse_ip>:9440, ClickHouse's native TLS port
+database = "stellar"
+user = "stellar_jobs"
+password_file = "/etc/stellar/clickhouse-jobs.password"
+ca_file = "/etc/stellar/clickhouse-ca.crt"  # lab's clickhouse CA (step clickhouse)

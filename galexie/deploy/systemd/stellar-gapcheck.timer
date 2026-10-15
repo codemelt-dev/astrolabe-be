@@ -1,0 +1,9 @@
+# stellar-gapcheck.timer — weekly runs /usr/local/bin/worker gapcheck
+[Unit]
+Description=Run the Stellar archive gap check weekly
+[Timer]
+OnCalendar=weekly
+RandomizedDelaySec=1h
+Persistent=true
+[Install]
+WantedBy=timers.target

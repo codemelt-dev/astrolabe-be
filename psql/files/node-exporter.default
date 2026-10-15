@@ -1,0 +1,5 @@
+# /etc/default/prometheus-node-exporter (lab psql, step monitoring): node_exporter on loopback only;
+# the textfile collector reads the backup and state-copy markers (pgbackrest-mark-success,
+# state-copy-mark-success), and the systemd collector reports their units
+# (PostgresBackupUnitFailed, PostgresBackupStale, StateCopyFailed).
+ARGS="--web.listen-address=127.0.0.1:9100 --collector.textfile.directory=/var/lib/prometheus/node-exporter --collector.systemd --collector.systemd.unit-include=(pgbackrest-.+|stellar-state-copy.service)"

@@ -1,0 +1,14 @@
+# stellar-watchdog.service — restarts Galexie only if its upload is hung
+# (galexie/README.md §7.4.11). Oneshot, run as root every 30 s by
+# stellar-watchdog.timer, from worker-lake (it changes only with a lake
+# deploy). Its state file /var/lib/stellar-watchdog/state.json is
+# world-readable: ingest exports it as metrics.
+[Unit]
+Description=Stellar Galexie watchdog
+After=stellar-lake.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/worker-lake watchdog
+StateDirectory=stellar-watchdog
+StateDirectoryMode=0755
+TimeoutStartSec=60

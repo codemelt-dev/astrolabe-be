@@ -1,0 +1,9 @@
+# /etc/systemd/system/stellar-galexie.service.d/m4-start.conf — M4 only (the
+# first Galexie runs), until `worker galexie-start` is deployed: it resets
+# ExecStartPre=, re-adds the orphan cleanup, and pins START. That is safe
+# because Galexie resumes at max(START, newest+1). Remove this drop-in
+# (and run `systemctl daemon-reload`) once the launcher exists (M7).
+[Service]
+ExecStartPre=
+ExecStartPre=-/usr/bin/docker rm -f stellar-galexie
+Environment=START=<n>

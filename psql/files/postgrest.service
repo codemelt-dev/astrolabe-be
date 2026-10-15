@@ -1,0 +1,36 @@
+# /etc/systemd/system/postgrest.service (lab psql, step postgrest): PostgREST on 127.0.0.1:3000.
+[Unit]
+Description=PostgREST: the explorer API
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+User=postgrest
+Group=postgrest
+ExecStart=/usr/local/bin/postgrest /etc/postgrest/postgrest.conf
+# SIGUSR2 re-reads the config file (reloadable keys) and the role settings
+ExecReload=/bin/kill -USR2 $MAINPID
+Restart=always
+RestartSec=2
+# SIGTERM: PostgREST stops accepting, finishes in-flight requests, then exits
+TimeoutStopSec=30
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+# AF_UNIX: the database socket. No MemoryDenyWriteExecute: PostgREST's libffi needs W+X memory.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

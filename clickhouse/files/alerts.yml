@@ -1,0 +1,76 @@
+# /etc/prometheus/rules/clickhouse-alerts.yml (lab psql, step clickhouse, with monitoring on):
+# alert rules for the clickhouse host (clickhouse/README.md §9.4).
+#
+# Scrape jobs these rules assume (Prometheus on the psql host, over the private network):
+#   job="clickhouse"         10.0.2.2:9363  (ClickHouse's Prometheus endpoint)
+#   job="clickhouse_node"    10.0.2.2:9100  (node_exporter)
+#   job="clickhouse_ingest"  10.0.2.2:9103  (the clickhouse pipeline: /metrics)
+# The explorer's history, assets and statistics come from this host: ClickHouse, its
+# pipeline and its disk page; the rest are warnings. The state-copy rules watch the psql host's
+# daily job (job="node", its textfile marker and systemd unit).
+groups:
+  - name: clickhouse
+    rules:
+      - alert: ClickHouseDown
+        expr: up{job="clickhouse"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "ClickHouse doesn't answer on 10.0.2.2:9363: systemctl status clickhouse-server."
+      - alert: ClickHousePipelineDown
+        expr: up{job="clickhouse_ingest"} == 0
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "The clickhouse pipeline doesn't answer: systemctl status stellar-clickhouse-ingest."
+      - alert: ClickHousePipelineHalted
+        expr: increase(stellar_alerts_total{job="clickhouse_ingest", kind="pipeline_halted"}[15m]) > 0
+        labels: {severity: page}
+        annotations:
+          summary: "The clickhouse pipeline halted without advancing (validation, hash chain or sink error): journalctl -u stellar-clickhouse-ingest."
+      - alert: ClickHousePipelineBehind
+        expr: (max(stellar_network_tip{job="clickhouse_ingest"}) - max(ingest_cursor{job="clickhouse_ingest", pipeline="clickhouse"})) > 720 and on() max(delta(stellar_network_tip{job="clickhouse_ingest"}[10m])) > 0
+        for: 15m
+        labels: {severity: page}
+        annotations:
+          summary: "The clickhouse pipeline is {{ $value }} ledgers (over an hour) behind the network, which is advancing."
+      - alert: ClickHouseTooManyParts
+        expr: ClickHouseAsyncMetrics_MaxPartCountForPartition{job="clickhouse"} > 300
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "A partition has {{ $value }} active parts: inserts are outpacing merges, and ClickHouse delays, then refuses, inserts beyond its limits."
+      - alert: ClickHouseDiskUsage
+        expr: 1 - node_filesystem_avail_bytes{job="clickhouse_node", mountpoint="/"} / node_filesystem_size_bytes{job="clickhouse_node", mountpoint="/"} > 0.70
+        for: 15m
+        labels: {severity: warning}
+        annotations:
+          summary: "The clickhouse host's disk is {{ $value | humanizePercentage }} full: plan the growth."
+      - alert: ClickHouseDiskCritical
+        expr: 1 - node_filesystem_avail_bytes{job="clickhouse_node", mountpoint="/"} / node_filesystem_size_bytes{job="clickhouse_node", mountpoint="/"} > 0.85
+        for: 5m
+        labels: {severity: page}
+        annotations:
+          summary: "The clickhouse host's disk is {{ $value | humanizePercentage }} full: ingest stops when it is full."
+      - alert: ClickHouseDiskFullIn30Days
+        expr: predict_linear(node_filesystem_avail_bytes{job="clickhouse_node", mountpoint="/"}[7d], 30 * 86400) < 0
+        for: 1h
+        labels: {severity: warning}
+        annotations:
+          summary: At the last 7 days' growth, the clickhouse host's disk fills up within 30 days.
+      - alert: StateCopyStale
+        expr: time() - max(stellar_state_copy_last_success_timestamp_seconds{job="node"}) > 2 * 86400
+        labels: {severity: warning}
+        annotations:
+          summary: "No successful worker state-copy for two days: assets and top holders are stale, and a day's snapshot is missing (journalctl -u stellar-state-copy on the psql host)."
+      - alert: StateCopyMetricMissing
+        expr: absent(stellar_state_copy_last_success_timestamp_seconds{job="node"})
+        for: 2d
+        labels: {severity: warning}
+        annotations:
+          summary: worker state-copy has never succeeded on the psql host
+      - alert: StateCopyFailed
+        expr: node_systemd_unit_state{job="node", name="stellar-state-copy.service", state="failed"} == 1
+        labels: {severity: warning}
+        annotations:
+          summary: "worker state-copy failed (journalctl -u stellar-state-copy on the psql host)"

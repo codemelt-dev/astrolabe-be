@@ -1,0 +1,127 @@
+# /etc/caddy/Caddyfile (lab psql, step caddy): the public HTTPS front of the explorer API (README §1.1),
+# and of the optional sites in /etc/caddy/sites/ (Grafana).
+{
+	email ops@example.com
+	# Admin API (`caddy reload`, /metrics for Prometheus): loopback only.
+	admin localhost:2019
+	metrics
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 10s
+			write 30s
+			idle 2m
+		}
+		max_header_size 32KB
+	}
+}
+
+api.example.com {
+	log {
+		output file /var/log/caddy/api.log {
+			roll_size 100MiB
+			roll_keep 10
+			roll_keep_for 336h
+		}
+	}
+
+	encode zstd gzip
+
+	request_body {
+		max_size 1KB
+	}
+
+	# Anonymous API: credentials never reach PostgREST (Authorization is dropped in each handle
+	# below, after the frontend's backend is recognised by it).
+	request_header -Cookie
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
+		Cross-Origin-Resource-Policy cross-origin
+		+Vary Origin
+		-Server
+		?Cache-Control "public, max-age=5"
+	}
+
+	# A ledger can no longer change: a non-empty answer (status 200, rows
+	# from offset 0) to a request pinned to one sequence or hash.
+	@ledger_pinned {
+		method GET HEAD
+		path /ledgers
+		expression `{query}.matches("(^|&)(sequence|hash)=eq[.]")`
+	}
+	header @ledger_pinned {
+		Cache-Control "public, max-age=86400, immutable"
+		match {
+			status 200
+			header Content-Range 0-*
+		}
+	}
+
+	# Read-only API: GET and HEAD, and OPTIONS for CORS preflights.
+	@not_read not method GET HEAD OPTIONS
+	handle @not_read {
+		respond 405
+	}
+
+	# The frontend's backend, with its login codemelt:astrolabe (basic auth; the same login as on
+	# the ClickHouse site): one budget of its own instead of the per-IP limit, which a
+	# single backend serving every visitor would reach. 5,000 requests in any 10 s window.
+	@codemelt header Authorization "Basic Y29kZW1lbHQ6YXN0cm9sYWJl"
+	handle @codemelt {
+		request_header -Authorization
+		rate_limit {
+			zone api_codemelt {
+				key codemelt
+				window 10s
+				events 5000
+			}
+		}
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	# Everyone else, per client IP (IPv6 per /64): 100 requests in any 10 s window.
+	handle {
+		request_header -Authorization
+		rate_limit {
+			zone per_client {
+				key {client_ip}
+				window 10s
+				events 100
+				ipv6_prefix 64
+			}
+		}
+		reverse_proxy 127.0.0.1:3000 {
+			transport http {
+				dial_timeout 2s
+				response_header_timeout 15s
+			}
+		}
+	}
+
+	# Errors raised here rather than by PostgREST (429 rate limit, 413 body,
+	# 502/504 PostgREST down): JSON, readable cross-origin, never cached.
+	handle_errors {
+		header {
+			Access-Control-Allow-Origin *
+			Strict-Transport-Security "max-age=31536000; includeSubDomains"
+			X-Content-Type-Options nosniff
+			Cache-Control no-store
+			Content-Type "application/json; charset=utf-8"
+			-Server
+		}
+		respond `{"code":"{err.status_code}","message":"{err.status_text}"}` {err.status_code}
+	}
+}
+
+# Optional sites: Grafana's when grafana_hostname is set (lab psql, step grafana). No match is fine.
+import /etc/caddy/sites/*.caddy

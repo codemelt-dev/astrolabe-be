@@ -1,0 +1,16 @@
+# /etc/stellar/galexie.toml — Galexie's config, mounted into the container as
+# /config.toml by stellar-galexie.service. Never change the schema or the
+# bucket path of an existing store: Galexie exits 1 on a manifest mismatch.
+admin_port = 6061                      # binds all interfaces → Cloud Firewall (public) + nftables (private)
+[datastore_config]
+type = "S3"
+[datastore_config.params]
+destination_bucket_path = "stellar/ledgers/pubnet"
+region = "us-east-1"                   # must equal the gateway Region
+endpoint_url = "http://127.0.0.1:9000"
+[datastore_config.schema]
+ledgers_per_file = 1
+files_per_partition = 64000
+[stellar_core_config]
+network = "pubnet"
+storage_path = "/srv/core"

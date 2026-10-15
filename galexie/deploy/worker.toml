@@ -1,0 +1,85 @@
+# /etc/stellar/worker.toml — the worker's config (both `worker` and
+# `worker-lake` read it). Values shown are the defaults unless marked
+# "set". Unknown keys are rejected. All paths must be absolute.
+#   install -m 0640 -o root -g stellar worker.toml /etc/stellar/worker.toml
+
+log_level = "info"                         # debug, info, warn, error
+
+[credentials]
+gateway_env = "/etc/stellar/gateway.env"   # gateway root keys (parsed by path)
+archive_env = "/etc/stellar/archive.env"   # archive endpoint + uploader key (parsed by path)
+
+[lake]
+dir = "/srv/lake"                          # the Hetzner Volume mountpoint (s3/ and state/)
+bucket_path = "stellar/ledgers/pubnet"     # = galexie.toml destination_bucket_path
+region = "us-east-1"                       # = galexie.toml region
+s3_listen = "127.0.0.1:9000"
+control_listen = "127.0.0.1:9001"          # /v1/tip, /metrics, /healthz
+metrics_listen = "10.0.0.2:9101"           # set: <private IP>:9101 (best-effort bind)
+allow_unmounted = false                    # development only
+
+[archive]
+enabled = true
+bucket = "stellar-ledgers-pubnet"          # staging (M6–M9): "stellar-ledgers-pubnet-staging"
+path_style = false                         # virtual-hosted unless the provider needs path-style
+
+[postgres]
+# set: ingest_writer (ingest, bootstrap, reindex), whose password is in
+# /etc/stellar/pgpass (stellar:stellar 0600, one pgpass line).
+dsn = "postgres://ingest_writer@10.0.1.2:5432/explorer?sslmode=verify-full&sslrootcert=/etc/stellar/pg-ca.crt&passfile=/etc/stellar/pgpass"
+# set: explorer_owner, used only by `worker migrate` (empty: dsn), run as
+# root: its password is in /etc/stellar/pgpass-owner (root:root 0600), out
+# of reach of the stellar user that runs ingest.
+migrate_dsn = "postgres://explorer_owner@10.0.1.2:5432/explorer?sslmode=verify-full&sslrootcert=/etc/stellar/pg-ca.crt&passfile=/etc/stellar/pgpass-owner"
+
+[ingest]
+lake_grace = "2m"                          # lake unavailable this long → fail over and alert
+archive_grace = "10m"                      # archive reads failing this long → AWS lake and alert
+max_batch_ledgers = 500                    # catch-up commit bounds (at most 500 ledgers and 512 MiB)
+max_batch_mib = 512
+
+[bootstrap]
+history_archives = [
+  "https://history.stellar.org/prd/core-live/core_live_001",
+  "https://history.stellar.org/prd/core-live/core_live_002",
+  "https://history.stellar.org/prd/core-live/core_live_003",
+]
+checkpoint_poll = "30s"                    # --force: re-read the archives while waiting for C ≥ cursor
+
+[prune]
+enabled = true
+retention_ledgers = 51840                  # W: 72 h (allowed 17,280–51,840)
+disk_high_watermark = 0.8                  # above it the readers' cursors no longer hold pruning back
+interval = "1m"
+local_readers = ["explorer"]
+
+[metrics]
+listen = "127.0.0.1:9102"                  # ingest /metrics, /healthz, /readyz
+private_listen = "10.0.0.2:9102"           # set: <private IP>:9102 (best-effort bind)
+core_dir = "/srv/core"                     # captive core's storage, for disk usage
+ready_max_lag = 120                        # /readyz fails beyond this many ledgers behind the lake tip
+network_tip = true                         # read the AWS public lake's tip as the network tip
+
+[galexie]
+unit = "stellar-galexie.service"
+metrics_url = "http://127.0.0.1:6061/metrics"
+# set: the pinned image (also in stellar-galexie.service and the repair command).
+image = "stellar/stellar-galexie:29.0.0@sha256:5269dfd9034948f3db8dd7595fe8aec88aae5480f712a78e2dea48a841d495a3"
+docker = "/usr/bin/docker"
+
+[watchdog]
+state_file = "/var/lib/stellar-watchdog/state.json"
+receiving_restart = "120s"                 # rule (a)
+uploader_stall = "180s"                    # rule (b)
+syncing_page = "30s"                       # page "lake Volume I/O stall"; never a restart
+min_restart_interval = "15m"
+page_after_restarts = 2
+first_upload_within = "45m"                # N from the M4 measurement
+max_uploader_lag = 120
+network_tip = true
+
+[gapcheck]
+method = "detect-gaps"                     # or "reindex-dry-run" if the provider rejects path-style
+galexie_config = "/etc/stellar/galexie-archive.toml"
+env_file = "/etc/stellar/archive-aws.env"
+result_file = "/var/lib/stellar-gapcheck/result.json"

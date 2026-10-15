@@ -1,0 +1,18 @@
+# /etc/stellar/galexie-archive.toml — galexie.toml pointed at the archive
+# bucket, with admin_port = 0, for `worker gapcheck`'s detect-gaps container
+# and a manual archive repair (galexie/README.md §7.4.10). The container gets
+# the uploader key from /etc/stellar/archive-aws.env. detect-gaps uses
+# path-style addressing.
+admin_port = 0
+[datastore_config]
+type = "S3"
+[datastore_config.params]
+destination_bucket_path = "stellar-ledgers-pubnet/ledgers/pubnet"   # <archive.bucket>/<lake prefix>
+region = "hel1"                                                    # = ARCHIVE_S3_REGION
+endpoint_url = "https://hel1.your-objectstorage.com"               # = ARCHIVE_S3_ENDPOINT
+[datastore_config.schema]
+ledgers_per_file = 1
+files_per_partition = 64000
+[stellar_core_config]
+network = "pubnet"
+storage_path = "/srv/core"

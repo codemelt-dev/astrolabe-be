@@ -1,0 +1,17 @@
+# stellar-lake.service — Galexie's endpoint; rarely restarted
+[Unit]
+RequiresMountsFor=/srv/lake
+StartLimitIntervalSec=0
+[Service]
+Type=notify
+NotifyAccess=main
+User=stellar
+ExecStart=/usr/local/bin/worker-lake lake
+Restart=always
+RestartSec=1
+TimeoutStartSec=600
+TimeoutStopSec=30
+OOMScoreAdjust=-900
+LimitNOFILE=65536
+[Install]
+WantedBy=multi-user.target

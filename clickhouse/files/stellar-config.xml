@@ -1,0 +1,93 @@
+<?xml version="1.0"?>
+<!-- /etc/clickhouse-server/config.d/10-stellar.xml (lab clickhouse, step clickhouse): this host's
+     settings over the package's config.xml. ClickHouse listens on loopback and the private IP only;
+     the host's nftables lets the psql host reach the TLS ports and the metrics, nothing else. -->
+<clickhouse>
+    <display_name>stellar-clickhouse</display_name>
+    <timezone>UTC</timezone>
+
+    <logger>
+        <level>information</level>
+        <size>100M</size>
+        <count>10</count>
+    </logger>
+
+    <!-- Loopback (the worker, clickhouse-client) and the private IP (the psql host). -->
+    <listen_host>127.0.0.1</listen_host>
+    <listen_host>10.0.2.2</listen_host>
+
+    <!-- Plain ports: loopback only (nftables). TLS ports: for the psql host. -->
+    <http_port>8123</http_port>
+    <tcp_port>9000</tcp_port>
+    <https_port>8443</https_port>
+    <tcp_port_secure>9440</tcp_port_secure>
+
+    <!-- A single server, and no other wire protocols. -->
+    <interserver_http_port remove="remove"/>
+    <mysql_port remove="remove"/>
+    <postgresql_port remove="remove"/>
+
+    <!-- lab's CA signs this certificate (README §5.4); clients aren't asked for one. -->
+    <openSSL>
+        <server>
+            <certificateFile>/etc/clickhouse-server/tls/server.crt</certificateFile>
+            <privateKeyFile>/etc/clickhouse-server/tls/server.key</privateKeyFile>
+            <verificationMode>none</verificationMode>
+            <loadDefaultCAFile>false</loadDefaultCAFile>
+            <disableProtocols>sslv2,sslv3,tlsv1,tlsv1_1</disableProtocols>
+            <preferServerCiphers>true</preferServerCiphers>
+        </server>
+    </openSSL>
+
+    <!-- Scraped by Prometheus on the psql host (job clickhouse). -->
+    <prometheus>
+        <endpoint>/metrics</endpoint>
+        <port>9363</port>
+        <metrics>true</metrics>
+        <events>true</events>
+        <asynchronous_metrics>true</asynchronous_metrics>
+    </prometheus>
+
+    <!-- Users read only the system tables they are granted: the public endpoint must not see
+         system.query_log (everyone's queries) or the server's settings. -->
+    <access_control_improvements>
+        <select_from_system_db_requires_grant>true</select_from_system_db_requires_grant>
+    </access_control_improvements>
+
+    <!-- Leave room for the pipeline (GOMEMLIMIT=4GiB) and the page cache. -->
+    <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
+
+    <!-- ZSTD for every part (the default is LZ4): history is written once and read in bulk. -->
+    <compression>
+        <case>
+            <method>zstd</method>
+            <level>3</level>
+        </case>
+    </compression>
+
+    <!-- System logs keep 14 days; by default they grow without limit. Merged into the package's
+         definitions: every log 26.8 enables that this host can write, the public included
+         (query_thread_log with log_query_threads = 1, the span log with a traceparent header).
+         The package's own TTLs stay: asynchronous_insert_log 3 days; blob_storage_log and the
+         ZooKeeper logs 30 days. Left out, never written here: the S3Queue, Iceberg, Delta Lake
+         and instrumentation logs. A changed TTL makes ClickHouse rename the old table to
+         <name>_0 at its restart (README §9.3). -->
+    <query_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></query_log>
+    <query_metric_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></query_metric_log>
+    <part_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></part_log>
+    <trace_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></trace_log>
+    <metric_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></metric_log>
+    <asynchronous_metric_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></asynchronous_metric_log>
+    <processors_profile_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></processors_profile_log>
+    <error_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></error_log>
+    <text_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></text_log>
+    <query_views_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></query_views_log>
+    <query_thread_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></query_thread_log>
+    <background_schedule_pool_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></background_schedule_pool_log>
+    <crash_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></crash_log>
+    <backup_log><ttl>event_date + INTERVAL 14 DAY DELETE</ttl></backup_log>
+    <!-- The package sets its engine, so the TTL goes in it. -->
+    <opentelemetry_span_log>
+        <engine>ENGINE = MergeTree PARTITION BY toYYYYMM(finish_date) ORDER BY (finish_date, finish_time_us) TTL finish_date + INTERVAL 14 DAY DELETE</engine>
+    </opentelemetry_span_log>
+</clickhouse>

@@ -1,0 +1,27 @@
+# /etc/systemd/system/alertmanager.service (lab psql, step monitoring): Alertmanager on 127.0.0.1:9093.
+[Unit]
+Description=Prometheus Alertmanager
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=alertmanager
+Group=alertmanager
+# --cluster.listen-address= turns off the HA gossip port, which would otherwise listen on 0.0.0.0:9094
+ExecStart=/usr/local/bin/alertmanager \
+    --config.file=/etc/alertmanager/alertmanager.yml \
+    --storage.path=/var/lib/alertmanager \
+    --web.listen-address=127.0.0.1:9093 \
+    --web.external-url=http://localhost:9093/ \
+    --cluster.listen-address=
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/alertmanager
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

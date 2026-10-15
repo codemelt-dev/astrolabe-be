@@ -1,0 +1,23 @@
+# stellar-firewall.service — loads the Galexie host's own nftables table
+# (/etc/nftables.d/stellar-galexie.nft, from galexie-host.nft) early at
+# boot, before any network interface is configured.
+#
+# It replaces nftables.service on this host: that unit loads
+# /etc/nftables.conf, whose Ubuntu default starts with `flush ruleset`, and
+# its stop runs `nft flush ruleset`, which would also remove Docker's chains.
+# This unit only ever replaces the table inet stellar_galexie. It has no
+# ExecStop on purpose: stopping it leaves the rules in place (to remove
+# them: nft delete table inet stellar_galexie).
+[Unit]
+Description=Galexie host firewall (nftables table inet stellar_galexie)
+Wants=network-pre.target
+Before=network-pre.target shutdown.target
+Conflicts=shutdown.target
+DefaultDependencies=no
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/stellar-galexie.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables.d/stellar-galexie.nft
+[Install]
+WantedBy=sysinit.target

@@ -1,0 +1,46 @@
+# /etc/alertmanager/alertmanager.yml (lab psql, step monitoring): e-mail alerts and the heartbeat.
+# The SMTP password and the dead-man's switch URL are separate files (root:alertmanager 0640),
+# written from /etc/stellar/secrets.
+global:
+  smtp_smarthost: smtp.example.com:587
+  smtp_from: alerts@example.com
+  smtp_auth_username: alerts@example.com
+  smtp_auth_password_file: /etc/alertmanager/smtp-password
+  smtp_require_tls: true
+
+route:
+  receiver: email
+  group_by: [alertname, job, instance]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    # The always-firing Watchdog keeps the external dead-man's switch quiet.
+    - matchers: ['alertname = "Watchdog"']
+      receiver: deadmansswitch
+      group_wait: 0s
+      group_interval: 1m
+      repeat_interval: 1m
+    - matchers: ['severity = "page"']
+      receiver: page
+      repeat_interval: 1h
+
+receivers:
+  - name: deadmansswitch
+    webhook_configs:
+      - url_file: /etc/alertmanager/deadman-url
+        send_resolved: false
+  - name: page
+    email_configs:
+      - to: oncall@example.com
+        send_resolved: true
+  - name: email
+    email_configs:
+      - to: ops@example.com
+        send_resolved: true
+
+inhibit_rules:
+  # A paging alert silences the warnings of the same alert and target.
+  - source_matchers: ['severity = "page"']
+    target_matchers: ['severity = "warning"']
+    equal: [alertname, job, instance]

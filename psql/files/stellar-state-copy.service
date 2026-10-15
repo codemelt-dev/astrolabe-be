@@ -1,0 +1,19 @@
+# /etc/systemd/system/stellar-state-copy.service (lab psql, step jobs): worker state-copy, started by
+# its timer or by hand. It copies the current state into ClickHouse, computes assets and top
+# holders there, and appends the day's snapshots (clickhouse/README.md §10).
+[Unit]
+Description=Copy the state into ClickHouse, with the rankings and the day's snapshots
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=stellar
+ExecStart=/usr/local/bin/worker state-copy --snapshot
+# "+" runs the marker as root: the textfile directory belongs to node_exporter's package.
+ExecStartPost=+/usr/local/sbin/state-copy-mark-success
+Environment=GOMEMLIMIT=2GiB
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=1h

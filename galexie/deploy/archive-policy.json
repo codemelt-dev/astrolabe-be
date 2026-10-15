@@ -1,0 +1,19 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "UploaderReadWrite",
+      "Effect": "Allow",
+      "Principal": {"AWS": ["arn:aws:iam:::user/p<galexie_project_id>:<uploader_access_key>"]},
+      "Action": ["s3:PutObject", "s3:GetObject", "s3:ListBucket"],
+      "Resource": ["arn:aws:s3:::stellar-ledgers-pubnet", "arn:aws:s3:::stellar-ledgers-pubnet/*"]
+    },
+    {
+      "Sid": "UploaderCannotDeleteOrChangePolicy",
+      "Effect": "Deny",
+      "Principal": {"AWS": ["arn:aws:iam:::user/p<galexie_project_id>:<uploader_access_key>"]},
+      "Action": ["s3:DeleteObject", "s3:PutBucketPolicy", "s3:DeleteBucketPolicy", "s3:DeleteBucket"],
+      "Resource": ["arn:aws:s3:::stellar-ledgers-pubnet", "arn:aws:s3:::stellar-ledgers-pubnet/*"]
+    }
+  ]
+}

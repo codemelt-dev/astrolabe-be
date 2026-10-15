@@ -1,0 +1,24 @@
+# /etc/stellar/galexie-repair.toml — galexie.toml with admin_port = 0, for
+# the one-off scan-and-fill container that repairs a hole in the lake
+# (galexie/README.md §7.4.8):
+#
+#   docker run --rm --network host --env-file /etc/stellar/gateway.env -v /srv/core:/srv/core \
+#     -v /etc/stellar/galexie-repair.toml:/config.toml:ro \
+#     stellar/stellar-galexie:29.0.0@sha256:5269dfd9034948f3db8dd7595fe8aec88aae5480f712a78e2dea48a841d495a3 \
+#     scan-and-fill --start n --end n+1 --config-file /config.toml
+#
+# --end must be greater than --start; existing ledgers are skipped (delete a
+# corrupt object through the lake first).
+admin_port = 0
+[datastore_config]
+type = "S3"
+[datastore_config.params]
+destination_bucket_path = "stellar/ledgers/pubnet"
+region = "us-east-1"
+endpoint_url = "http://127.0.0.1:9000"
+[datastore_config.schema]
+ledgers_per_file = 1
+files_per_partition = 64000
+[stellar_core_config]
+network = "pubnet"
+storage_path = "/srv/core"

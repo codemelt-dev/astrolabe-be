@@ -1,0 +1,11 @@
+# /etc/systemd/system/pgbackrest-full.timer (lab psql, step backups): the weekly full backup.
+[Unit]
+Description=Weekly pgBackRest full backup
+
+[Timer]
+OnCalendar=Sun *-*-* 01:30:00
+Persistent=true
+Unit=pgbackrest-backup@full.service
+
+[Install]
+WantedBy=timers.target

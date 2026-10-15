@@ -1,0 +1,100 @@
+# /etc/caddy/sites/clickhouse.caddy (lab psql, step clickhouse, when clickhouse_hostname is set):
+# ClickHouse's public, read-only SQL endpoint, imported by the Caddyfile (clickhouse/README.md §8).
+# Two kinds of client:
+#   - the frontend's backend, with its login codemelt:astrolabe: Caddy logs in as stellar_api for
+#     it, whose profile and quota apply;
+#   - everyone else, anonymous: whatever credentials they send are dropped and Caddy logs in as
+#     stellar_public, whose profile and quota bound every query (read only, 10 s, 2 GB, 100,000
+#     rows).
+# It reaches ClickHouse's HTTPS port over the private network, trusting only lab's CA for it.
+clickhouse.example.com {
+	log {
+		output file /var/log/caddy/clickhouse.log {
+			roll_size 100MiB
+			roll_keep 10
+			roll_keep_for 336h
+		}
+	}
+
+	encode zstd gzip
+
+	request_body {
+		max_size 64KB
+	}
+
+	# Never from a client: ClickHouse's other ways to log in, and trace context, which would
+	# make ClickHouse record the query's spans in system.opentelemetry_span_log.
+	request_header -Cookie
+	request_header -X-ClickHouse-User
+	request_header -X-ClickHouse-Key
+	request_header -X-ClickHouse-Quota
+	request_header -traceparent
+	request_header -tracestate
+	uri query -user
+	uri query -password
+	uri query -quota_key
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	# Queries (/), the SQL page (/play) and /ping: nothing else of ClickHouse's HTTP interface.
+	@other not path / /play /ping
+	handle @other {
+		respond 404
+	}
+	@not_query not method GET HEAD POST OPTIONS
+	handle @not_query {
+		respond 405
+	}
+
+	# The frontend's backend, with its login codemelt:astrolabe (basic auth; the same login as on
+	# the API): Caddy logs in to ClickHouse as stellar_api for it, whose profile and quota
+	# apply. One budget of its own: 2,000 requests in any 10 s window.
+	@codemelt header Authorization "Basic Y29kZW1lbHQ6YXN0cm9sYWJl"
+	handle @codemelt {
+		request_header -Authorization
+		request_header X-ClickHouse-User stellar_api
+		request_header X-ClickHouse-Key REPLACE_WITH_API_PASSWORD
+		rate_limit {
+			zone clickhouse_codemelt {
+				key codemelt
+				window 10s
+				events 2000
+			}
+		}
+		reverse_proxy https://10.0.2.2:8443 {
+			transport http {
+				tls_trust_pool file /etc/stellar/clickhouse-ca.crt
+				dial_timeout 2s
+				response_header_timeout 35s
+			}
+		}
+	}
+
+	# Anonymous: Caddy logs in, never the client. Per client IP (IPv6 per /64): 30 requests in
+	# any 10 s window.
+	handle {
+		request_header -Authorization
+		request_header X-ClickHouse-User stellar_public
+		request_header X-ClickHouse-Key REPLACE_WITH_PUBLIC_PASSWORD
+		rate_limit {
+			zone clickhouse_public {
+				key {client_ip}
+				window 10s
+				events 30
+				ipv6_prefix 64
+			}
+		}
+		reverse_proxy https://10.0.2.2:8443 {
+			transport http {
+				tls_trust_pool file /etc/stellar/clickhouse-ca.crt
+				dial_timeout 2s
+				response_header_timeout 15s
+			}
+		}
+	}
+}

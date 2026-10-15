@@ -1,0 +1,15 @@
+# /etc/systemd/system/stellar-clickhouse-ingest.service (lab clickhouse, step services): the
+# clickhouse pipeline, AWS public lake → ClickHouse (README §7). The only writer above its cursor.
+[Unit]
+Wants=network-online.target clickhouse-server.service
+After=network-online.target clickhouse-server.service
+StartLimitIntervalSec=0
+[Service]
+User=stellar
+ExecStart=/usr/local/bin/worker clickhouse-ingest
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+Environment=GOMEMLIMIT=4GiB
+[Install]
+WantedBy=multi-user.target

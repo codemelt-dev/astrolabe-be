@@ -1,0 +1,16 @@
+# stellar-gapcheck.service — weekly gap check of the archive:
+# Galexie's detect-gaps container over [archive_origin, archive_tip], with
+# /etc/stellar/archive-aws.env and /etc/stellar/galexie-archive.toml.
+# Oneshot, run as root by stellar-gapcheck.timer. The result file
+# /var/lib/stellar-gapcheck/result.json is world-readable: ingest exports it
+# as metrics; the unit also fails when the archive has gaps.
+[Unit]
+Description=Stellar archive gap check
+Wants=network-online.target
+After=network-online.target docker.service
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/worker gapcheck
+StateDirectory=stellar-gapcheck
+StateDirectoryMode=0755
+TimeoutStartSec=12h

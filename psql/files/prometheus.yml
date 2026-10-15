@@ -1,0 +1,54 @@
+# /etc/prometheus/prometheus.yml (lab psql, step monitoring): scrapes this host and the galexie host,
+# and the clickhouse host through scrape.d/.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Optional hosts' jobs: the clickhouse host's (lab psql, step clickhouse). No match is fine.
+scrape_config_files:
+  - /etc/prometheus/scrape.d/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['127.0.0.1:9093']
+
+scrape_configs:
+  # This host, on loopback
+  - job_name: prometheus
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+  - job_name: alertmanager
+    static_configs:
+      - targets: ['127.0.0.1:9093']
+  - job_name: node
+    static_configs:
+      - targets: ['127.0.0.1:9100']
+  - job_name: postgres
+    static_configs:
+      - targets: ['127.0.0.1:9187']
+  - job_name: postgrest               # PostgREST's admin server
+    static_configs:
+      - targets: ['127.0.0.1:3001']
+  - job_name: caddy                   # Caddy's admin API
+    static_configs:
+      - targets: ['127.0.0.1:2019']
+
+  # The galexie host, over the private network (rules: galexie-alerts.yml)
+  # Every 5 s, about one ledger, so the pipeline dashboard follows each one.
+  - job_name: lake
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    static_configs:
+      - targets: ['10.0.0.2:9101']
+  - job_name: ingest
+    scrape_interval: 5s
+    scrape_timeout: 4s
+    static_configs:
+      - targets: ['10.0.0.2:9102']
+  - job_name: galexie
+    static_configs:
+      - targets: ['10.0.0.2:6061']

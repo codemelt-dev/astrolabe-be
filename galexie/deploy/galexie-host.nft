@@ -1,0 +1,42 @@
+#!/usr/sbin/nft -f
+# /etc/nftables.d/stellar-galexie.nft — host firewall of the galexie host's
+# private interface (lab galexie, step firewall). Cloud Firewalls do not
+# filter private traffic, so this does: inbound only the metrics ports and
+# ping from the psql host, outbound only Postgres on the psql host. The
+# public side is the Cloud Firewall's job (inbound SSH from the admin IP).
+#
+# It must coexist with Docker's chains: it never runs `flush ruleset` and
+# only replaces its own table, atomically (nft -f applies the whole file as
+# one transaction). Validate first: nft -c -f galexie-host.nft
+# stellar-firewall.service loads it at boot (not nftables.service, whose
+# stop flushes the whole ruleset); see galexie/README.md §1.4.
+define PRIV_IF = "enp7s0"            # the private network interface (ens10 on older server types)
+define PSQL_HOST = 10.0.1.2           # the psql host: Postgres, and Prometheus scraping this host
+
+table inet stellar_galexie
+delete table inet stellar_galexie
+table inet stellar_galexie {
+	chain input {
+		type filter hook input priority filter - 10; policy accept;
+		iifname != $PRIV_IF accept
+		ct state established,related accept
+		ct state invalid drop
+		# DHCP lease renewals of the private interface.
+		udp sport 67 udp dport 68 accept
+		# Metrics: lake 9101, ingest 9102, Galexie admin 6061 — Prometheus only.
+		ip saddr $PSQL_HOST tcp dport { 9101, 9102, 6061 } accept
+		# Ping from the psql host: lab psql check, and the MTU test.
+		ip saddr $PSQL_HOST icmp type echo-request accept
+		# Everything else on the private interface, including captive core's
+		# peer port 11725.
+		counter drop
+	}
+	chain output {
+		type filter hook output priority filter - 10; policy accept;
+		oifname != $PRIV_IF accept
+		ct state established,related accept
+		ip daddr $PSQL_HOST tcp dport 5432 accept
+		udp sport 68 udp dport 67 accept
+		counter drop
+	}
+}
