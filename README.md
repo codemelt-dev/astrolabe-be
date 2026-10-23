@@ -1,4 +1,6 @@
-The backend of a Stellar block explorer.
+# Astrolabe Data Layer
+
+The backend and indexer behind [Astrolabe](https://astrostellar.xyz), a Stellar block explorer and analytics platform. It is built by [Codemelt](https://codemelt.com) and funded by the Stellar Community Fund (SCF #45). Product docs are in the [Astrolabe GitBook](https://codemelt.gitbook.io/astrolabe-docs).
 
 It ingests every ledger from go-live on. The current state goes into PostgreSQL and is served as a public, read-only REST API. The history goes into ClickHouse, which also computes the asset rankings and daily statistics, and is served as public, read-only SQL. Every ledger is also kept whole in the archive bucket.
 
