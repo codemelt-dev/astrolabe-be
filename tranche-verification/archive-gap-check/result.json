@@ -1,0 +1,9 @@
+{
+    "method": "detect-gaps",
+    "from": 64806592,
+    "to": 65137757,
+    "gaps": null,
+    "missing": 0,
+    "started_at": "2026-10-26T00:29:33.120095325Z",
+    "finished_at": "2026-10-26T00:29:51.717539223Z"
+}
