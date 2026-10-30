@@ -160,7 +160,7 @@ func tuned(data []byte, f facts) []byte {
 		}
 		return fmt.Sprintf("'%dMB'", b/mb)
 	}
-	shared, wal, par, av := f.ram/4, clamp(f.disk/16/gb*gb, 2*gb, 64*gb), clamp(f.cores/4, 1, 4), uint64(6)
+	shared, wal, par, av := f.ram/4, clamp(f.disk/6/gb*gb, 2*gb, 64*gb), clamp(f.cores/4, 1, 4), uint64(6)
 	if f.cores < 12 {
 		av = max(3, f.cores/2)
 	}
@@ -408,10 +408,14 @@ func backupsPart(e *env) part {
 		files: []file{{"/etc/pgbackrest/pgbackrest.conf", e.asset("files/pgbackrest.conf"), 0o640, "root:postgres"},
 			{"/etc/pgbackrest/conf.d/secrets.conf", []byte(secrets), 0o640, "root:postgres"},
 			{"/usr/local/sbin/pgbackrest-mark-success", e.asset("files/pgbackrest-mark-success"), 0o755, "root:root"},
-			unit("pgbackrest-backup@.service"), unit("pgbackrest-full.timer"), unit("pgbackrest-diff.timer")},
+			unit("pgbackrest-backup@.service"), unit("pgbackrest-full.timer"), unit("pgbackrest-diff.timer"),
+			unit("pgbackrest-expire.service"), unit("pgbackrest-expire.timer")},
 		// The diff timer is installed but off: weekly fulls only. To turn it on:
 		// systemctl enable --now pgbackrest-diff.timer (backupsHealth follows).
-		svcs: []service{{unit: "pgbackrest-full.timer", files: []string{"/etc/systemd/system/pgbackrest-full.timer"}}},
+		// Backups don't expire (expire-auto=n): without the expire timer the
+		// repository would only grow.
+		svcs: []service{{unit: "pgbackrest-full.timer", files: []string{"/etc/systemd/system/pgbackrest-full.timer"}},
+			{unit: "pgbackrest-expire.timer", files: []string{"/etc/systemd/system/pgbackrest-expire.timer"}}},
 	}
 }
 

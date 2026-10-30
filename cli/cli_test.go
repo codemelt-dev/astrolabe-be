@@ -159,8 +159,8 @@ func TestTuning(t *testing.T) {
 	sysctl, _ := fs.ReadFile(psqlHost.files, "files/sysctl.conf")
 	for f, want := range map[facts]string{
 		{128 * gb, 16, 32, 3_840_000_000_000}: `shared_buffers = '32GB' effective_cache_size = '90GB' work_mem = '64MB' maintenance_work_mem = '2GB' autovacuum_work_mem = '1GB' io_workers = 8 max_worker_processes = 32 max_parallel_workers = 16 max_parallel_workers_per_gather = 4 max_wal_size = '64GB' min_wal_size = '4GB' autovacuum_max_workers = 6 vm.nr_hugepages = 17200`,
-		{16 * gb, 4, 8, 480_000_000_000}:      `shared_buffers = '4GB' effective_cache_size = '11GB' work_mem = '8MB' maintenance_work_mem = '256MB' autovacuum_work_mem = '128MB' io_workers = 3 max_worker_processes = 8 max_parallel_workers = 4 max_parallel_workers_per_gather = 1 max_wal_size = '27GB' min_wal_size = '1728MB' autovacuum_max_workers = 3 vm.nr_hugepages = 2300`,
-		{4 * gb, 2, 2, 80_000_000_000}:        `shared_buffers = '1GB' effective_cache_size = '1GB' work_mem = '4MB' maintenance_work_mem = '64MB' autovacuum_work_mem = '64MB' io_workers = 3 max_worker_processes = 8 max_parallel_workers = 2 max_parallel_workers_per_gather = 1 max_wal_size = '4GB' min_wal_size = '256MB' autovacuum_max_workers = 3 vm.nr_hugepages = 700`,
+		{16 * gb, 4, 8, 480_000_000_000}:      `shared_buffers = '4GB' effective_cache_size = '11GB' work_mem = '8MB' maintenance_work_mem = '256MB' autovacuum_work_mem = '128MB' io_workers = 3 max_worker_processes = 8 max_parallel_workers = 4 max_parallel_workers_per_gather = 1 max_wal_size = '64GB' min_wal_size = '4GB' autovacuum_max_workers = 3 vm.nr_hugepages = 2300`,
+		{4 * gb, 2, 2, 80_000_000_000}:        `shared_buffers = '1GB' effective_cache_size = '1GB' work_mem = '4MB' maintenance_work_mem = '64MB' autovacuum_work_mem = '64MB' io_workers = 3 max_worker_processes = 8 max_parallel_workers = 2 max_parallel_workers_per_gather = 1 max_wal_size = '12GB' min_wal_size = '768MB' autovacuum_max_workers = 3 vm.nr_hugepages = 700`,
 	} {
 		got := string(tuned(conf, f)) + string(tuned(sysctl, f))
 		if f.cores == 16 && got != string(conf)+string(sysctl) {

@@ -1,0 +1,18 @@
+# /etc/systemd/system/pgbackrest-expire.service (lab psql, step backups): removes the backups and WAL
+# that the retention no longer needs, started daily by pgbackrest-expire.timer (pgbackrest.conf has
+# expire-auto=n). Hetzner Object Storage takes minutes to delete one WAL directory and sometimes
+# drops the connection, which ends the run. So it retries every 5 minutes until a run succeeds,
+# for at most 22 hours: it never holds the lock when the next backup starts at 01:30.
+[Unit]
+Description=pgBackRest expire of stanza explorer
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/bin/sh -c 'until /usr/bin/pgbackrest --stanza=explorer expire; do sleep 300; done'
+TimeoutStartSec=22h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7

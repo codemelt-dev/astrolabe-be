@@ -45,7 +45,7 @@ groups:
           summary: No successful full backup for 8 days (one runs every Sunday)
 
       - alert: PostgresBackupUnitFailed
-        expr: node_systemd_unit_state{job="node", name=~"pgbackrest-backup@.+", state="failed"} == 1
+        expr: node_systemd_unit_state{job="node", name=~"pgbackrest-backup@.+|pgbackrest-expire.service", state="failed"} == 1
         labels: {severity: warning}
         annotations:
           summary: '{{ $labels.name }} failed (journalctl -u {{ $labels.name }})'

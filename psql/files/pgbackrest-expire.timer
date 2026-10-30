@@ -1,0 +1,13 @@
+# /etc/systemd/system/pgbackrest-expire.timer (lab psql, step backups): the daily expire, an hour
+# after the backups start. On most days it has nothing to remove; after Sunday's full, it removes
+# the previous full and a week of WAL.
+[Unit]
+Description=Daily pgBackRest expire
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+Unit=pgbackrest-expire.service
+
+[Install]
+WantedBy=timers.target

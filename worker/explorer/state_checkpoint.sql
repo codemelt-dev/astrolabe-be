@@ -10,6 +10,6 @@ CREATE TABLE explorer.state_checkpoint (
     checkpoint   BIGINT      NOT NULL,   -- C, with (C + 1) % 64 = 0
     hash         BYTEA       NOT NULL,   -- ledger C's hash
     loaded_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    load_seconds DOUBLE PRECISION NOT NULL, -- bootstrap duration (PLAN M5)
+    load_seconds DOUBLE PRECISION NOT NULL, -- bootstrap duration
     entries      JSONB       NOT NULL    -- rows loaded per state table
 );
