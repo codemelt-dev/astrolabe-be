@@ -133,6 +133,12 @@ func IsPreconditionFailed(err error) bool {
 	return errorCode(err) == "PreconditionFailed" || httpStatus(err) == http.StatusPreconditionFailed
 }
 
+// IsThrottled reports whether err is the store asking for fewer requests:
+// S3's 503 SlowDown.
+func IsThrottled(err error) bool {
+	return errorCode(err) == "SlowDown" || httpStatus(err) == http.StatusServiceUnavailable
+}
+
 // IsAccessDenied reports whether err is S3's 403 AccessDenied.
 func IsAccessDenied(err error) bool {
 	return errorCode(err) == "AccessDenied" || httpStatus(err) == http.StatusForbidden

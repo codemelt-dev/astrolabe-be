@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"maps"
-	"regexp"
 	"strings"
 	"time"
 
@@ -303,55 +302,6 @@ func (s *Source) NewestObject(ctx context.Context) (uint32, time.Time, error) {
 		}
 	}
 	return 0, time.Time{}, fmt.Errorf("%s: %w", s.name, ErrNoLedgers)
-}
-
-// partitionDir is a partition's directory under the store prefix.
-var partitionDir = regexp.MustCompile(`^[0-9A-F]{8}--[0-9]+-[0-9]+/$`)
-
-// Oldest returns the store's oldest ledger. Keys sort newest first, so it
-// is the last key of the last partition: Oldest lists every partition and
-// then that partition's keys, for one-off use (`worker clickhouse-init`).
-func (s *Source) Oldest(ctx context.Context) (uint32, error) {
-	prefix := ""
-	if s.prefix != "" {
-		prefix = s.prefix + "/"
-	}
-	last := ""
-	p := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
-		Bucket: aws.String(s.bucket), Prefix: aws.String(prefix), Delimiter: aws.String("/"),
-	})
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
-		if err != nil {
-			return 0, s.wrap("list", err)
-		}
-		for _, cp := range page.CommonPrefixes {
-			if dir := aws.ToString(cp.Prefix); partitionDir.MatchString(strings.TrimPrefix(dir, prefix)) {
-				last = dir
-			}
-		}
-	}
-	if last == "" {
-		return 0, fmt.Errorf("%s: %w", s.name, ErrNoLedgers)
-	}
-	var oldest uint32
-	found := false
-	p = s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{Bucket: aws.String(s.bucket), Prefix: aws.String(last)})
-	for p.HasMorePages() {
-		page, err := p.NextPage(ctx)
-		if err != nil {
-			return 0, s.wrap("list", err)
-		}
-		for _, o := range page.Contents {
-			if seq, ok := ParseKey(s.prefix, aws.ToString(o.Key)); ok {
-				oldest, found = seq, true
-			}
-		}
-	}
-	if !found {
-		return 0, fmt.Errorf("%s: %w (partition %s is empty)", s.name, ErrNoLedgers, last)
-	}
-	return oldest, nil
 }
 
 // LoadSchema checks the store's manifest against our layout on the given

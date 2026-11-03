@@ -33,9 +33,6 @@ func TestLakeSourceAndTipClient(t *testing.T) {
 	if _, err := src.Newest(ctx); !errors.Is(err, sep54.ErrNoLedgers) {
 		t.Fatalf("empty lake Newest: %v", err)
 	}
-	if _, err := src.Oldest(ctx); !errors.Is(err, sep54.ErrNoLedgers) {
-		t.Fatalf("empty lake Oldest: %v", err)
-	}
 	if _, err := src.LoadSchema(ctx, network.PublicNetworkPassphrase); err != nil {
 		t.Fatalf("LoadSchema before Galexie's manifest: %v", err)
 	}
@@ -67,10 +64,6 @@ func TestLakeSourceAndTipClient(t *testing.T) {
 	}
 	if newest, at, err := src.NewestObject(ctx); err != nil || newest != 64_002 || time.Since(at) > time.Minute {
 		t.Fatalf("NewestObject = %d, %s, %v", newest, at, err)
-	}
-	// The oldest ledger sits in the other partition (63998 < 64000).
-	if oldest, err := src.Oldest(ctx); err != nil || oldest != 63_998 {
-		t.Fatalf("Oldest = %d, %v", oldest, err)
 	}
 	m, err := src.GetObject(ctx, sep54.ManifestFile)
 	if err != nil || !bytes.Equal(m.Body, sep54.ManifestBytes(network.PublicNetworkPassphrase)) {

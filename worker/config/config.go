@@ -151,6 +151,11 @@ type ClickHouse struct {
 	MigratePasswordFile string `toml:"migrate_password_file"`
 	// TipPoll is how often the archive's newest ledger is listed.
 	TipPoll time.Duration `toml:"tip_poll"`
+	// FirstLedger is the first ledger ClickHouse holds, the explorer's
+	// go-live: `worker clickhouse-init` seeds the cursor just below it.
+	// The archive's oldest ledger can't stand in for it, since the archive
+	// may also hold older ledgers (`worker archive-backfill`).
+	FirstLedger uint32 `toml:"first_ledger"`
 }
 
 var clickhouseNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)

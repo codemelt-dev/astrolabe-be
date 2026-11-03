@@ -58,11 +58,12 @@ func setupClickhouseMigrate(fs *flag.FlagSet) runFunc {
 }
 
 // setupClickhouseInit wires `worker clickhouse-init`: it seeds the cursor
-// once, before the archive's oldest ledger (or --at), with that ledger's
-// previous hash, so the pipeline starts where the explorer's history does.
-// With --check it only reports whether the cursor exists (exit 1 if not).
+// once, before clickhouse.first_ledger (or --at), with that ledger's
+// previous hash from the archive, so the pipeline starts where the
+// explorer's history does. With --check it only reports whether the cursor
+// exists (exit 1 if not).
 func setupClickhouseInit(fs *flag.FlagSet) runFunc {
-	at := fs.Uint("at", 0, "first ledger to write (default: the archive's oldest)")
+	at := fs.Uint("at", 0, "first ledger to write (default: clickhouse.first_ledger)")
 	check := fs.Bool("check", false, "only report the cursor; exit 1 if there is none")
 	return func(ctx context.Context, env runEnv) error {
 		if *at > math.MaxUint32 || *at == 1 {
@@ -95,9 +96,10 @@ func setupClickhouseInit(fs *flag.FlagSet) runFunc {
 		}
 		first := uint32(*at)
 		if first == 0 {
-			if first, err = src.Oldest(ctx); err != nil {
-				return fmt.Errorf("the archive's oldest ledger: %w", err)
-			}
+			first = cfg.ClickHouse.FirstLedger
+		}
+		if first < 2 {
+			return fmt.Errorf("%w: set clickhouse.first_ledger (the explorer's go-live) or pass --at", errUsage)
 		}
 		obj, err := src.GetLedger(ctx, first)
 		if err != nil {
