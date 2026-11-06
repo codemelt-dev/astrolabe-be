@@ -7,10 +7,10 @@
 log_level = "info"                         # debug, info, warn, error
 
 [credentials]
-archive_env = "/etc/stellar/archive.env"   # archive endpoint + the reader key, for clickhouse-init only
+archive_env = "/etc/stellar/archive.env"   # archive endpoint and key: clickhouse-init reads, archive-backfill writes
 
 [archive]
-bucket = "stellar-ledgers-pubnet"          # set: clickhouse-init reads its oldest ledger; this host never runs the archiver
+bucket = "stellar-ledgers-pubnet"          # set: clickhouse-init reads first_ledger from it; this host never runs the archiver
 path_style = false
 
 [clickhouse]
@@ -21,6 +21,7 @@ password_file = "/etc/stellar/clickhouse-writer.password"
 migrate_user = "stellar_owner"             # worker clickhouse-migrate only
 migrate_password_file = "/etc/stellar/clickhouse-owner.password"
 tip_poll = "5s"                            # how often the AWS public lake's newest ledger is read
+first_ledger = 64806592                    # set: the explorer's go-live; clickhouse-init seeds the cursor just below it
 
 [ingest]
 lake_grace = "2m"                          # the AWS lake unreadable this long: alert (lake_unavailable); reads keep retrying

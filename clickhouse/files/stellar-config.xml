@@ -57,6 +57,39 @@
     <!-- Leave room for the pipeline (GOMEMLIMIT=4GiB) and the page cache. -->
     <max_server_memory_usage_to_ram_ratio>0.75</max_server_memory_usage_to_ram_ratio>
 
+    <!-- The uncompressed cache counts against that limit. The api profile uses it for its lookups
+         by key (stellar-users.xml), and at the default 8 GiB the API's traffic fills it until the
+         nightly rankings (worker state-copy) run out of memory. 2 GiB leaves them room. -->
+    <uncompressed_cache_size>2147483648</uncompressed_cache_size>
+
+    <!-- Two tiers (README §2): the local disk ("default", /var/lib/clickhouse) holds the newest
+         month, the data volume ("data", mounted on /srv/clickhouse) the rest. The history tables
+         use the policy "tiered" (migration 14): a part moves to the volume "cold" once its newest row is 30
+         days old, and a part that old from the start (a backfill) is written there directly.
+         Should the local disk still run low, parts move once less than 30 % of it is free. The
+         local volume is named "default" because ClickHouse moves a table to a new policy only if
+         it keeps the old policy's volumes by name. -->
+    <storage_configuration>
+        <disks>
+            <data>
+                <path>/srv/clickhouse/data/</path>
+            </data>
+        </disks>
+        <policies>
+            <tiered>
+                <volumes>
+                    <default>
+                        <disk>default</disk>
+                    </default>
+                    <cold>
+                        <disk>data</disk>
+                    </cold>
+                </volumes>
+                <move_factor>0.3</move_factor>
+            </tiered>
+        </policies>
+    </storage_configuration>
+
     <!-- ZSTD for every part (the default is LZ4): history is written once and read in bulk. -->
     <compression>
         <case>

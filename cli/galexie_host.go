@@ -85,13 +85,13 @@ func disksCheck(e *env) result {
 		return failed("%s holds %s, not xfs: it is never formatted (galexie/README.md §2.2)", dev, fs)
 	}
 	fstab, _ := os.ReadFile("/etc/fstab")
-	want, have, err := fstabEntry(string(fstab), e)
+	want, have, err := fstabEntry(string(fstab), string(e.asset("deploy/lake.fstab")))
 	switch {
 	case err != nil:
 		return failed("%v", err)
 	case !have:
 		return change("add to /etc/fstab: %s", want)
-	case !mounted(dev):
+	case !mountedOn(lakeDir, dev):
 		return change("mount %s", lakeDir)
 	}
 	for _, d := range srvDirs {
@@ -120,7 +120,7 @@ func disksApply(e *env) error {
 		e.note("formatted %s", dev)
 	}
 	fstab, _ := os.ReadFile("/etc/fstab")
-	if want, have, err := fstabEntry(string(fstab), e); err != nil {
+	if want, have, err := fstabEntry(string(fstab), string(e.asset("deploy/lake.fstab"))); err != nil {
 		return err
 	} else if !have {
 		fstab = []byte(strings.TrimRight(string(fstab), "\n") + "\n" + want + "\n")
@@ -131,7 +131,7 @@ func disksApply(e *env) error {
 			return err
 		}
 	}
-	if !mounted(dev) {
+	if !mountedOn(lakeDir, dev) {
 		if err := e.mkdir(dir{lakeDir, 0o755, "root:root"}); err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func disksApply(e *env) error {
 		e.note("mounted %s", lakeDir)
 	}
 	// Never create the lake's directories or marker on the root disk.
-	if !mounted(dev) {
+	if !mountedOn(lakeDir, dev) {
 		return fmt.Errorf("%s is not mounted from %s", lakeDir, dev)
 	}
 	for _, d := range srvDirs {
@@ -159,7 +159,7 @@ func disksApply(e *env) error {
 // blkid returns a device's filesystem type or partition table; "" for none.
 func blkid(dev string) (string, error) {
 	if !exists(dev) {
-		return "", fmt.Errorf("%s not found: attach the lake volume (galexie/README.md §2.2)", dev)
+		return "", fmt.Errorf("%s not found: attach the volume (galexie/README.md §2.2, clickhouse/README.md §2)", dev)
 	}
 	out, err := probe("blkid", "-p", "-o", "value", "-s", "TYPE", "-s", "PTTYPE", dev)
 	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) && ee.ExitCode() == 2 && out == "" {
@@ -168,11 +168,11 @@ func blkid(dev string) (string, error) {
 	return out, err
 }
 
-// fstabEntry returns the lake's line (deploy/lake.fstab) and whether fstab has
-// it. Another entry for the mountpoint or the device (an automount) is left
-// to the operator.
-func fstabEntry(fstab string, e *env) (want string, have bool, err error) {
-	want = strings.TrimSpace(string(e.asset("deploy/lake.fstab")))
+// fstabEntry returns a volume's line (the last line of its rendered fstab
+// template, e.g. deploy/lake.fstab) and whether fstab has it. Another entry
+// for the mountpoint or the device (an automount) is left to the operator.
+func fstabEntry(fstab, template string) (want string, have bool, err error) {
+	want = strings.TrimSpace(template)
 	want = want[strings.LastIndexByte(want, '\n')+1:]
 	w := strings.Fields(want)
 	for _, line := range strings.Split(fstab, "\n") {
@@ -188,16 +188,20 @@ func fstabEntry(fstab string, e *env) (want string, have bool, err error) {
 	return want, have, nil
 }
 
-// mounted reports whether dev (findmnt resolves the symlink) is on /srv/lake.
-func mounted(dev string) bool {
-	_, err := probe("findmnt", "-n", "--mountpoint", lakeDir, "--source", dev)
+// mountedOn reports whether dev (findmnt resolves the symlink) is mounted
+// on dir.
+func mountedOn(dir, dev string) bool {
+	_, err := probe("findmnt", "-n", "--mountpoint", dir, "--source", dev)
 	return err == nil
 }
 
 // disksHealth shows / (OS, Docker, /srv/core) and the lake; above 85 % pages.
-func disksHealth(*env) result {
+func disksHealth(*env) result { return diskUsage("/", lakeDir) }
+
+// diskUsage shows each path's filesystem; above 85 % used fails.
+func diskUsage(paths ...string) result {
 	r := ok("")
-	for _, p := range []string{"/", lakeDir} {
+	for _, p := range paths {
 		var st syscall.Statfs_t
 		if err := syscall.Statfs(p, &st); err != nil {
 			return failed("%s: %v", p, err)

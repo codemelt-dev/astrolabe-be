@@ -146,7 +146,7 @@
     {
       "type": "stat",
       "title": "Disk used",
-      "description": "The clickhouse host's disk; alerts at 70 % and 85 %.",
+      "description": "The local disk (/, the newest month) and the data volume (/srv/clickhouse, the rest); alerts at 70 % and 85 %.",
       "gridPos": {
         "x": 18,
         "y": 1,
@@ -160,8 +160,8 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "1 - max(node_filesystem_avail_bytes{job=\"clickhouse_node\", mountpoint=\"/\"}) / max(node_filesystem_size_bytes{job=\"clickhouse_node\", mountpoint=\"/\"})",
-          "legendFormat": "",
+          "expr": "1 - max by (mountpoint) (node_filesystem_avail_bytes{job=\"clickhouse_node\", mountpoint=~\"/|/srv/clickhouse\"}) / max by (mountpoint) (node_filesystem_size_bytes{job=\"clickhouse_node\", mountpoint=~\"/|/srv/clickhouse\"})",
+          "legendFormat": "{{mountpoint}}",
           "instant": true,
           "range": false
         }

@@ -1,0 +1,3 @@
+# The data volume's line in /etc/fstab (lab clickhouse, step disks): the Volume by id, xfs. nofail
+# lets the host boot without it; clickhouse-server waits for the mount (RequiresMountsFor).
+/dev/disk/by-id/scsi-0HC_Volume_100654321 /srv/clickhouse xfs discard,nofail,defaults 0 2

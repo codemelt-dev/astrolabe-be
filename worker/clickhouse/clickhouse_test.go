@@ -22,7 +22,7 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 13 || all[len(all)-1].Name != "assets" {
+	if len(all) != 14 || all[len(all)-1].Name != "storage" {
 		t.Fatalf("%d migrations, last %q", len(all), all[len(all)-1].Name)
 	}
 	stmts := 0
@@ -30,23 +30,30 @@ func TestMigrations(t *testing.T) {
 		for _, s := range Statements(m.SQL) {
 			stmts++
 			// Run again after a half-applied migration, every statement must
-			// be a no-op the second time: a CREATE … IF NOT EXISTS.
-			if !regexp.MustCompile(`^CREATE (TABLE|MATERIALIZED VIEW) IF NOT EXISTS `).MatchString(s) {
+			// be a no-op the second time: a CREATE … IF NOT EXISTS, or an
+			// ALTER that sets the storage policy or a TTL that moves parts to
+			// the data volume (the same value again).
+			if !regexp.MustCompile(`^CREATE (TABLE|MATERIALIZED VIEW) IF NOT EXISTS `).MatchString(s) && !moveTTL.MatchString(s) &&
+				!regexp.MustCompile(`^ALTER TABLE \w+ MODIFY SETTING storage_policy = 'tiered'$`).MatchString(s) {
 				t.Errorf("migration %d: not idempotent: %.60s", m.Version, s)
 			}
-			// Nothing expires (clickhouse/README.md §9.5).
-			if strings.Contains(s, "TTL") {
-				t.Errorf("migration %d sets a TTL: %.60s", m.Version, s)
+			// Nothing expires (clickhouse/README.md §9.5): a TTL only moves
+			// parts to the data volume.
+			if strings.Contains(s, "TTL") && !moveTTL.MatchString(s) {
+				t.Errorf("migration %d sets a TTL that doesn't only move: %.60s", m.Version, s)
 			}
 			if strings.Contains(s, "stellar.") {
 				t.Errorf("migration %d names the database; tables go to the connection's: %.60s", m.Version, s)
 			}
 		}
 	}
-	if stmts != 25 { // 22 tables and 2 materialized views, plus daily_stats' refreshable one
-		t.Errorf("%d statements, want 25", stmts)
+	if stmts != 46 { // 22 tables and 2 materialized views, plus daily_stats' refreshable one; 21 ALTERs for the storage
+		t.Errorf("%d statements, want 46", stmts)
 	}
 }
+
+// moveTTL is the only TTL a migration may set: move to the data volume.
+var moveTTL = regexp.MustCompile(`^ALTER TABLE \w+ MODIFY TTL (closed_at|date) \+ INTERVAL 30 DAY TO VOLUME 'cold'$`)
 
 func TestStatements(t *testing.T) {
 	got := Statements("-- comment\nCREATE TABLE a (x UInt8); -- not the end; really\nCREATE TABLE b\n(\n    y UInt8 -- 0-based; -1 for none\n);\n")

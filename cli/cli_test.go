@@ -110,7 +110,7 @@ func TestSteps(t *testing.T) {
 	for h, want := range map[*host]string{
 		galexieHost:    "system firewall disks docker worker config units migrate bootstrap services",
 		psqlHost:       "system network firewall postgres database backups api postgrest caddy monitoring clickhouse jobs grafana",
-		clickhouseHost: "system network firewall clickhouse worker config migrate init services",
+		clickhouseHost: "system network firewall disks clickhouse worker config migrate init services",
 	} {
 		var names []string
 		for _, s := range h.steps() {

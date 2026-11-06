@@ -37,11 +37,15 @@ var clickhouseSettings = []setting{
 	{key: "cloud_network", title: "Whole private network, routed via the VLAN gateway", example: "10.0.0.0/16", when: hasVLAN, steps: onNetwork},
 	{key: "admin_ips", title: "IPv4 addresses or networks allowed to SSH, comma-separated", example: "203.0.113.10", steps: []string{"firewall"},
 		valid: matching(`[0-9./]+(, *[0-9./]+)*`, "IPv4 addresses or networks, comma-separated")},
+	{key: "data_device", title: "Data volume (ls /dev/disk/by-id/)", example: "/dev/disk/by-id/scsi-0HC_Volume_100654321",
+		valid: matching(`^/dev/disk/by-id/[A-Za-z0-9_.:-]+$`, "a /dev/disk/by-id/ path"), steps: []string{"disks", "clickhouse"}},
 	{key: "archive_bucket", title: "Archive bucket", example: "stellar-ledgers-pubnet", valid: isName, steps: []string{"config"}},
 	{key: "archive_endpoint", title: "Archive S3 endpoint", example: "https://hel1.your-objectstorage.com", valid: matching(`^https://[A-Za-z0-9.-]+(:\d+)?$`, "https://host"), steps: []string{"config"}},
 	{key: "archive_region", title: "Archive S3 region", example: "hel1", valid: isName, steps: []string{"config"}},
-	{key: "archive_access_key", title: "Archive access key (reads the archive)", secret: true, steps: []string{"config"}},
+	{key: "archive_access_key", title: "Archive access key (reads the archive; writes it for worker archive-backfill)", secret: true, steps: []string{"config"}},
 	{key: "archive_secret_key", title: "Archive secret key", secret: true, steps: []string{"config"}},
+	{key: "first_ledger", title: "First ledger ClickHouse holds: the explorer's go-live (archive_origin in the galexie host's state/bootstrap.json)",
+		example: "64806592", valid: matching(`^[0-9]+$`, "a ledger number"), steps: []string{"config"}},
 }
 
 // clickhouseSteps is the step table, in order.
@@ -50,11 +54,12 @@ func clickhouseSteps() []step {
 		{"system", "packages, UTC, sshd hardening, journald cap, needrestart", psqlSystemCheck, psqlSystemApply, nil},
 		{"network", "optional: the VLAN interface with the private IP (netplan)", networkCheck, networkApply, networkHealth},
 		{"firewall", "nftables: the whole ruleset, default drop", psqlFirewallCheck, psqlFirewallApply, psqlFirewallHealth},
+		{"disks", "the data volume: xfs, fstab, mounted on " + chDataMount, chDisksCheck, chDisksApply, chDisksHealth},
 		{"clickhouse", "ClickHouse " + chVersion + " (apt, pinned), config.d, users.d, TLS, passwords, database stellar", chCheck, chApply, chHealth},
 		{"worker", "user stellar; the worker shipped next to this app", chWorkerCheck, chWorkerApply, nil},
 		{"config", "/etc/stellar: worker.toml, archive.env, ClickHouse passwords; the clickhouse bundle for the psql host", chConfigCheck, chConfigApply, nil},
 		{"migrate", "worker clickhouse-migrate while migrations are pending", chMigrateCheck, chMigrateApply, nil},
-		{"init", "worker clickhouse-init once: the cursor before the archive's oldest ledger", chInitCheck, chInitApply, nil},
+		{"init", "worker clickhouse-init once: the cursor before first_ledger", chInitCheck, chInitApply, nil},
 		{"services", "stellar-clickhouse-ingest", chServicesCheck, chServicesApply, chPipelineHealth},
 	}
 }
@@ -71,6 +76,11 @@ const (
 	chClientConf = "/root/.clickhouse-client/config.xml"
 	chBundle     = "/root/clickhouse-bundle" // copied to the psql host with scp -3
 	chIngestUnit = "stellar-clickhouse-ingest.service"
+	// The data volume: mounted on chDataMount, ClickHouse's disk "data" in
+	// chDataPath (the cold tier of the storage policy "tiered"; README §2).
+	chDataMount  = "/srv/clickhouse"
+	chDataPath   = "/srv/clickhouse/data"
+	chDataDropIn = "/etc/systemd/system/clickhouse-server.service.d/10-data-volume.conf"
 )
 
 var (
@@ -86,7 +96,8 @@ var (
 	// ClickHouse re-reads users.d by itself; a new package, the server
 	// configuration or the certificate is a restart.
 	chService = service{unit: "clickhouse-server.service", files: []string{
-		"/var/lib/dpkg/info/clickhouse-server.list", chConfD, chTLS.srvCrt, chTLS.srvKey}}
+		"/var/lib/dpkg/info/clickhouse-server.list", chConfD, chDataDropIn, chTLS.srvCrt, chTLS.srvKey}}
+	chDataDir = dir{chDataPath, 0o750, "clickhouse:clickhouse"}
 )
 
 func chPasswordName(user string) string { return "clickhouse-" + user + ".password" }
@@ -108,6 +119,7 @@ func chFiles(e *env) (conf, own []file) {
 		{chSources, e.asset("files/clickhouse.sources"), 0o644, "root:root"},
 		{chConfD, e.set.render(e.asset("files/stellar-config.xml")), 0o640, "root:clickhouse"},
 		{chUsersD, e.set.render(e.asset("files/stellar-users.xml")), 0o640, "root:clickhouse"},
+		{chDataDropIn, e.asset("files/clickhouse-data-volume.conf"), 0o644, "root:root"},
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "<?xml version=\"1.0\"?>\n<!-- %s (%s, step clickhouse): the users' passwords as SHA-256, from\n     %s/clickhouse-*.password. -->\n<clickhouse>\n    <users>\n",
@@ -145,6 +157,9 @@ func chCheck(e *env) result {
 	}
 	if _, err := chTLS.days(e); err != nil {
 		return change("%v", err)
+	}
+	if !chDataDir.matches() {
+		return change("create %s", chDataPath)
 	}
 	if r := chService.state(); r.status != statusOK {
 		return r
@@ -195,13 +210,24 @@ func chApply(e *env) error {
 			}
 		}
 	}
-	if _, err := e.place(conf...); err != nil {
+	changed, err := e.place(conf...)
+	if err != nil {
+		return err
+	}
+	if err := e.daemonReload(changed); err != nil { // the drop-in
 		return err
 	}
 	if _, err := e.writeAll(own...); err != nil {
 		return err
 	}
 	if err := e.issue(chTLS); err != nil {
+		return err
+	}
+	// The disk "data" lives on the volume: never create it on the root disk.
+	if !mountedOn(chDataMount, e.v("data_device")) {
+		return fmt.Errorf("%s is not mounted from %s: run the disks step first", chDataMount, e.v("data_device"))
+	}
+	if err := e.mkdir(chDataDir); err != nil {
 		return err
 	}
 	if err := e.ensure(chService); err != nil {
@@ -221,6 +247,75 @@ func chApply(e *env) error {
 	}
 	return nil
 }
+
+// disks: the data volume, like the galexie host's lake (galexie_host.go).
+
+func chDisksCheck(e *env) result {
+	dev := e.v("data_device")
+	switch fs, err := blkid(dev); {
+	case err != nil:
+		return failed("%v", err)
+	case fs == "":
+		return result{status: statusChange, detail: "format " + dev + " as xfs", ask: "Format " + dev + " as xfs? blkid finds nothing on it."}
+	case fs != "xfs":
+		return failed("%s holds %s, not xfs: it is never formatted (clickhouse/README.md §2)", dev, fs)
+	}
+	fstab, _ := os.ReadFile("/etc/fstab")
+	want, have, err := fstabEntry(string(fstab), string(e.asset("files/data.fstab")))
+	switch {
+	case err != nil:
+		return failed("%v", err)
+	case !have:
+		return change("add to /etc/fstab: %s", want)
+	case !mountedOn(chDataMount, dev):
+		return change("mount %s", chDataMount)
+	}
+	return ok("%s on %s (xfs)", chDataMount, dev)
+}
+
+func chDisksApply(e *env) error {
+	dev := e.v("data_device")
+	if fs, err := blkid(dev); err != nil {
+		return err
+	} else if fs == "" {
+		if !e.approved["disks"] {
+			return errNotApproved
+		}
+		// Without -f, mkfs.xfs also refuses anything it recognises.
+		if _, err := e.run("mkfs.xfs", dev); err != nil {
+			return err
+		}
+		e.note("formatted %s", dev)
+	}
+	fstab, _ := os.ReadFile("/etc/fstab")
+	if want, have, err := fstabEntry(string(fstab), string(e.asset("files/data.fstab"))); err != nil {
+		return err
+	} else if !have {
+		fstab = []byte(strings.TrimRight(string(fstab), "\n") + "\n" + want + "\n")
+		if _, err := e.write(file{"/etc/fstab", fstab, 0o644, "root:root"}); err != nil {
+			return err
+		}
+		if err := e.daemonReload(true); err != nil { // fstab → mount units
+			return err
+		}
+	}
+	if !mountedOn(chDataMount, dev) {
+		if err := e.mkdir(dir{chDataMount, 0o755, "root:root"}); err != nil {
+			return err
+		}
+		if _, err := e.run("mount", chDataMount); err != nil {
+			return err
+		}
+		e.note("mounted %s", chDataMount)
+	}
+	if !mountedOn(chDataMount, dev) {
+		return fmt.Errorf("%s is not mounted from %s", chDataMount, dev)
+	}
+	return nil
+}
+
+// chDisksHealth shows / (the hot tier, system logs) and the volume.
+func chDisksHealth(*env) result { return diskUsage("/", chDataMount) }
 
 // chHealth asks what the psql host sees: ClickHouse over TLS on the private
 // IP, with lab's CA.
@@ -341,7 +436,7 @@ func chMigrateApply(e *env) error {
 	return nil
 }
 
-func chInitCheck(*env) result {
+func chInitCheck(e *env) result {
 	if !exists(workerBin) || !exists(workerConf) {
 		return waiting("needs the worker and its config")
 	}
@@ -350,7 +445,7 @@ func chInitCheck(*env) result {
 	case err == nil:
 		return ok("%s", out)
 	case strings.Contains(out, "no clickhouse cursor yet"):
-		return change("worker clickhouse-init: the cursor before the archive's oldest ledger")
+		return change("worker clickhouse-init: the cursor before ledger %s", e.v("first_ledger"))
 	}
 	return failed("worker clickhouse-init --check: %s", tail(out, 1))
 }
