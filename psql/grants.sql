@@ -18,4 +18,4 @@ GRANT TRUNCATE ON ALL TABLES IN SCHEMA explorer TO ingest_writer;
 -- worker state-copy: the explorer cursor, its ledger, and the state it copies.
 GRANT USAGE ON SCHEMA explorer TO state_reader;
 GRANT SELECT ON public.ingest_state, explorer.ledgers, explorer.accounts, explorer.trustlines, explorer.contract_data,
-    explorer.claimable_balances, explorer.liquidity_pools TO state_reader;
+    explorer.claimable_balances, explorer.liquidity_pools, explorer.offers TO state_reader;

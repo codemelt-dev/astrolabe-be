@@ -103,6 +103,11 @@ var copies = []copySpec{
 		last_modified_ledger FROM explorer.liquidity_pools`,
 		[]string{"pool_id", "asset_a", "asset_b", "reserve_a", "reserve_b", "total_shares", "trustlines", "last_modified_ledger"},
 		[]kind{str, str, str, i64, i64, i64, u64, u32}},
+	// The DEX's open offers; price is materialized from price_n / price_d.
+	{"state_offers", `SELECT offer_id, seller_id, selling, buying, amount, price_n::bigint, price_d::bigint, flags::bigint,
+		last_modified_ledger FROM explorer.offers`,
+		[]string{"offer_id", "seller", "selling", "buying", "amount", "price_n", "price_d", "flags", "last_modified_ledger"},
+		[]kind{i64, str, str, str, i64, u32, u32, u32, u32}},
 }
 
 // Tables lists every table a run replaces, in swap order: the copies, then

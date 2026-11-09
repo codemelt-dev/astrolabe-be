@@ -200,6 +200,8 @@
                 <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_claimable_balances_new</query>
                 <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_liquidity_pools</query>
                 <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_liquidity_pools_new</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_offers</query>
+                <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.state_offers_new</query>
                 <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.assets</query>
                 <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.assets_new</query>
                 <query>GRANT SELECT, INSERT, CREATE TABLE, DROP TABLE ON stellar.top_holders</query>

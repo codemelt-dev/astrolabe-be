@@ -40,15 +40,17 @@ const sorobanBalances = `SELECT contract_id, account, sum(amount) AS balance FRO
 
 var rankingSQL = []string{
 	// Classic assets: what trustlines, contracts, claimable balances and
-	// pools hold, with the issuer's flags and home domain.
+	// pools hold, how much of it open offers may sell (the trustlines'
+	// selling liabilities), with the issuer's flags and home domain.
 	`INSERT INTO assets_new
 	SELECT k.asset AS asset, 'classic' AS kind, splitByChar(':', k.asset)[1] AS code, splitByChar(':', k.asset)[2] AS issuer,
 	       c.contract_id AS contract_id, t.holders + s.holders AS holders, t.trustlines AS trustlines,
 	       t.amount + cb.amount + lp.amount + s.amount AS supply, t.amount AS in_accounts, cb.amount AS in_claimable_balances,
-	       lp.amount AS in_liquidity_pools, s.amount AS in_contracts, i.flags AS issuer_flags, i.home_domain AS home_domain,
+	       lp.amount AS in_liquidity_pools, s.amount AS in_contracts, t.on_offers AS on_offers, i.flags AS issuer_flags, i.home_domain AS home_domain,
 	       true AS complete, {ledger} AS ledger, {computed_at} AS computed_at
 	FROM (` + classicKeys + `) AS k
-	LEFT JOIN (SELECT asset, countIf(balance > 0) AS holders, count() AS trustlines, sum(toInt128(balance)) AS amount
+	LEFT JOIN (SELECT asset, countIf(balance > 0) AS holders, count() AS trustlines, sum(toInt128(balance)) AS amount,
+	                  sum(toInt128(selling_liabilities)) AS on_offers
 	           FROM state_trustlines_new GROUP BY asset) AS t USING asset
 	LEFT JOIN (SELECT asset, countIf(balance > 0) AS holders, sum(balance) AS amount FROM state_sac_balances_new GROUP BY asset) AS s USING asset
 	LEFT JOIN (SELECT asset, any(contract_id) AS contract_id FROM state_asset_contracts_new GROUP BY asset) AS c USING asset
@@ -62,11 +64,12 @@ var rankingSQL = []string{
 	       ON i.account_id = splitByChar(':', k.asset)[2]`,
 
 	// XLM: its supply is the ledger's total_coins; accounts hold it in
-	// their balances.
+	// their balances, and their selling liabilities are what offers may sell.
 	`INSERT INTO assets_new
 	SELECT 'native', 'native', 'XLM', '', c.contract_id, a.holders + s.holders, a.accounts, toInt128({total_coins}),
-	       a.amount, cb.amount, lp.amount, s.amount, 0, '', true, {ledger}, {computed_at}
-	FROM (SELECT countIf(balance > 0) AS holders, count() AS accounts, sum(toInt128(balance)) AS amount FROM state_accounts_new) AS a
+	       a.amount, cb.amount, lp.amount, s.amount, a.on_offers, 0, '', true, {ledger}, {computed_at}
+	FROM (SELECT countIf(balance > 0) AS holders, count() AS accounts, sum(toInt128(balance)) AS amount,
+	             sum(toInt128(selling_liabilities)) AS on_offers FROM state_accounts_new) AS a
 	CROSS JOIN (SELECT countIf(balance > 0) AS holders, sum(balance) AS amount FROM state_sac_balances_new WHERE asset = 'native') AS s
 	CROSS JOIN (SELECT any(contract_id) AS contract_id FROM state_asset_contracts_new WHERE asset = 'native') AS c
 	CROSS JOIN (SELECT sum(toInt128(amount)) AS amount FROM state_claimable_balances_new WHERE asset = 'native') AS cb
@@ -77,7 +80,7 @@ var rankingSQL = []string{
 	// go-live, complete for tokens created since.
 	`INSERT INTO assets_new
 	SELECT b.contract_id, 'soroban', '', '', b.contract_id, countIf(b.balance > 0), 0, sum(b.balance),
-	       sumIf(b.balance, startsWith(b.account, 'G')), 0, 0, sumIf(b.balance, startsWith(b.account, 'C')), 0, '',
+	       sumIf(b.balance, startsWith(b.account, 'G')), 0, 0, sumIf(b.balance, startsWith(b.account, 'C')), 0, 0, '',
 	       b.contract_id IN (SELECT contract_id FROM contract_creations), {ledger}, {computed_at}
 	FROM (` + sorobanBalances + `) AS b
 	GROUP BY b.contract_id`,

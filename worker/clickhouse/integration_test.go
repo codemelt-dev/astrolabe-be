@@ -87,9 +87,13 @@ func checkClean(t *testing.T, conn driver.Conn, batch []*explorer.Prepared) {
 func TestIntegrationMigrateTwice(t *testing.T) {
 	conn := testConn(t)
 	ctx := context.Background()
+	all, err := Migrations()
+	if err != nil {
+		t.Fatal(err)
+	}
 	applied, err := Migrate(ctx, conn, quiet)
-	if err != nil || len(applied) != 13 {
-		t.Fatalf("first migrate: %d applied, %v", len(applied), err)
+	if err != nil || len(applied) != len(all) {
+		t.Fatalf("first migrate: %d of %d applied, %v", len(applied), len(all), err)
 	}
 	if applied, err := Migrate(ctx, conn, quiet); err != nil || len(applied) != 0 {
 		t.Fatalf("second migrate: %d applied, %v", len(applied), err)

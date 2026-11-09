@@ -91,6 +91,11 @@ func TestRun(t *testing.T) {
 			('\x04', 'CXLM', 'persistent', '\x00', '\x00', '{}', '{}', 'CHOLDER', 40, NULL, NULL, 90)`,
 		`INSERT INTO explorer.claimable_balances VALUES ('B1', 'USD:GISSUER', 5, '[]', 0, NULL, 90)`,
 		`INSERT INTO explorer.liquidity_pools VALUES ('\xabcd', 'native', 'USD:GISSUER', 30, 1000, 10, 100, 1, 90)`,
+		// GA offers 20 XLM for USD and 7 USD for XLM: its selling liabilities.
+		`UPDATE explorer.accounts SET selling_liabilities = 20 WHERE account_id = 'GA'`,
+		`UPDATE explorer.trustlines SET selling_liabilities = 7 WHERE account_id = 'GA' AND asset = 'USD:GISSUER'`,
+		`INSERT INTO explorer.offers (offer_id, seller_id, selling, buying, amount, price_n, price_d, flags, last_modified_ledger) VALUES
+			(1, 'GA', 'native', 'USD:GISSUER', 20, 1, 2, 0, 95), (2, 'GA', 'USD:GISSUER', 'native', 7, 3, 1, 1, 95)`,
 	)
 	// A Soroban-only token, created since go-live: minted to GA, half sent to GB.
 	if err := chc.Exec(ctx, `INSERT INTO token_transfers (ledger_sequence, closed_at, tx_index, op_index, position, kind, asset, contract_id,
@@ -110,6 +115,7 @@ func TestRun(t *testing.T) {
 			t.Fatalf("run %d: %v", run, err)
 		}
 		if res.Ledger != 100 || res.Rows["state_accounts"] != 3 || res.Rows["state_trustlines"] != 3 || res.Rows["state_sac_balances"] != 2 ||
+			res.Rows["state_offers"] != 2 ||
 			res.Snapshot.Format(time.DateOnly) != "2026-10-09" {
 			t.Fatalf("run %d: %+v", run, res)
 		}
@@ -144,6 +150,32 @@ func TestRun(t *testing.T) {
 	}
 	if a := read("CTOKEN"); a.holders != 2 || a.supply.Int64() != 8 || a.inAccounts.Int64() != 8 || !a.complete {
 		t.Errorf("CTOKEN: %+v", a)
+	}
+
+	// On offer: the selling liabilities, in assets and in the day's snapshot.
+	onOffers := func(table, asset string) string {
+		var v *big.Int
+		q := fmt.Sprintf("SELECT on_offers FROM %s WHERE asset = ?", table)
+		if err := chc.QueryRow(ctx, q, asset).Scan(&v); err != nil {
+			t.Fatalf("%s %s: %v", table, asset, err)
+		}
+		if v == nil {
+			return "NULL"
+		}
+		return v.String()
+	}
+	for _, c := range [][3]string{{usd, "7"}, {"native", "20"}, {"CTOKEN", "0"}} {
+		if got := onOffers("assets", c[0]); got != c[1] {
+			t.Errorf("assets.on_offers %s = %s, want %s", c[0], got, c[1])
+		}
+		if got := onOffers("asset_snapshots", c[0]); got != c[1] {
+			t.Errorf("asset_snapshots.on_offers %s = %s, want %s", c[0], got, c[1])
+		}
+	}
+	var price float64
+	var flags uint32
+	if err := chc.QueryRow(ctx, "SELECT price, flags FROM state_offers WHERE offer_id = 2").Scan(&price, &flags); err != nil || price != 3 || flags != 1 {
+		t.Errorf("offer 2: price %v flags %d %v", price, flags, err)
 	}
 
 	holders := func(table, asset string) string {
