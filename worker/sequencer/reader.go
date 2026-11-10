@@ -11,6 +11,7 @@ import (
 
 	"github.com/stellar/go-stellar-sdk/ingest/ledgerbackend"
 	"github.com/stellar/go-stellar-sdk/support/datastore"
+	"github.com/stellar/go-stellar-sdk/xdr"
 
 	"stellar-explorer/worker/sep54"
 )
@@ -29,12 +30,18 @@ type Source interface {
 // readOne reads ledger seq with a single GET and fully decodes it. This is
 // the path at the tip and the precise fallback after a
 // catch-up reader fails: its errors say exactly what went wrong.
-func readOne(ctx context.Context, src Source, seq uint32) (Ledger, error) {
+// With history, older LedgerCloseMeta versions are accepted
+// (sep54.DecodeHistoryLedger).
+func readOne(ctx context.Context, src Source, seq uint32, history bool) (Ledger, error) {
 	obj, err := src.GetLedger(ctx, seq)
 	if err != nil {
 		return Ledger{}, err
 	}
-	lcm, h, err := sep54.DecodeLedger(seq, obj.Body)
+	decode := sep54.DecodeLedger
+	if history {
+		decode = sep54.DecodeHistoryLedger
+	}
+	lcm, h, err := decode(seq, obj.Body)
 	if err != nil {
 		return Ledger{}, err
 	}
@@ -51,9 +58,10 @@ type rangeReader struct {
 	next     uint32
 	bsb      *ledgerbackend.BufferedStorageBackend
 	store    *captureStore
+	check    func(uint32, xdr.LedgerCloseMeta) (sep54.Header, error)
 }
 
-func openRange(ctx context.Context, src Source, from, to uint32, cfg ledgerbackend.BufferedStorageBackendConfig) (*rangeReader, error) {
+func openRange(ctx context.Context, src Source, from, to uint32, cfg ledgerbackend.BufferedStorageBackendConfig, history bool) (*rangeReader, error) {
 	store := &captureStore{src: src, info: map[uint32]objectInfo{}}
 	bsb, err := ledgerbackend.NewBufferedStorageBackend(cfg, store, sep54.Schema)
 	if err != nil {
@@ -63,7 +71,11 @@ func openRange(ctx context.Context, src Source, from, to uint32, cfg ledgerbacke
 		_ = bsb.Close()
 		return nil, err
 	}
-	return &rangeReader{src: src, from: from, to: to, next: from, bsb: bsb, store: store}, nil
+	check := sep54.CheckLCM
+	if history {
+		check = sep54.CheckHistoryLCM
+	}
+	return &rangeReader{src: src, from: from, to: to, next: from, bsb: bsb, store: store, check: check}, nil
 }
 
 // read returns ledger seq, which must be the reader's next ledger. The
@@ -79,7 +91,7 @@ func (r *rangeReader) read(ctx context.Context, seq uint32) (Ledger, error) {
 	}
 	r.next++
 	info := r.store.take(seq)
-	h, err := sep54.CheckLCM(seq, lcm)
+	h, err := r.check(seq, lcm)
 	if err != nil {
 		return Ledger{}, err
 	}

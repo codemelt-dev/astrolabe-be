@@ -72,6 +72,16 @@ func Decompress(body []byte) ([]byte, error) {
 // one LedgerCloseMeta, lcm.LedgerSequence() == seq, LedgerCloseMeta V2 only,
 // and sha256(XDR(header)) == its hash. Every failure is an *InvalidError.
 func DecodeLedger(seq uint32, body []byte) (xdr.LedgerCloseMeta, Header, error) {
+	return decodeLedger(seq, body, CheckLCM)
+}
+
+// DecodeHistoryLedger is DecodeLedger for history before protocol 23, as
+// the AWS lake serves it: LedgerCloseMeta V0, V1 or V2 (CheckHistoryLCM).
+func DecodeHistoryLedger(seq uint32, body []byte) (xdr.LedgerCloseMeta, Header, error) {
+	return decodeLedger(seq, body, CheckHistoryLCM)
+}
+
+func decodeLedger(seq uint32, body []byte, check func(uint32, xdr.LedgerCloseMeta) (Header, error)) (xdr.LedgerCloseMeta, Header, error) {
 	raw, err := Decompress(body)
 	if err != nil {
 		return xdr.LedgerCloseMeta{}, Header{}, &InvalidError{Seq: seq, Err: err}
@@ -87,7 +97,7 @@ func DecodeLedger(seq uint32, body []byte) (xdr.LedgerCloseMeta, Header, error) 
 		return xdr.LedgerCloseMeta{}, Header{}, invalid(seq, "batch holds %d LedgerCloseMetas, want 1", n)
 	}
 	lcm := batch.LedgerCloseMetas[0]
-	h, err := CheckLCM(seq, lcm)
+	h, err := check(seq, lcm)
 	if err != nil {
 		return xdr.LedgerCloseMeta{}, Header{}, err
 	}
@@ -104,6 +114,22 @@ func CheckLCM(seq uint32, lcm xdr.LedgerCloseMeta) (Header, error) {
 		// failure, never silently processed.
 		return Header{}, invalid(seq, "LedgerCloseMeta V%d, only V2 is supported", lcm.V)
 	}
+	return checkLCMHeader(seq, lcm)
+}
+
+// CheckHistoryLCM is CheckLCM for history before protocol 23, as the AWS
+// lake serves it: LedgerCloseMeta V0 (protocol 1–19), V1 (20–22) or V2.
+// Only `worker clickhouse-backfill` reads such ledgers.
+func CheckHistoryLCM(seq uint32, lcm xdr.LedgerCloseMeta) (Header, error) {
+	switch {
+	case lcm.V == 0 && lcm.V0 != nil, lcm.V == 1 && lcm.V1 != nil, lcm.V == 2 && lcm.V2 != nil:
+	default:
+		return Header{}, invalid(seq, "LedgerCloseMeta V%d, only V0, V1 and V2 are supported", lcm.V)
+	}
+	return checkLCMHeader(seq, lcm)
+}
+
+func checkLCMHeader(seq uint32, lcm xdr.LedgerCloseMeta) (Header, error) {
 	if got := lcm.LedgerSequence(); got != seq {
 		return Header{}, invalid(seq, "LedgerCloseMeta is for ledger %d", got)
 	}

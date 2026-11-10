@@ -88,6 +88,10 @@ type Options[P Prepared] struct {
 	Process  Processor[P]
 	Sources  Sources
 	Fixed    *Fixed
+	// AnyLCMVersion accepts the LedgerCloseMeta versions of history before
+	// protocol 23 (V0, V1), for `worker clickhouse-backfill`. The live
+	// pipelines read V2 only.
+	AnyLCMVersion bool
 
 	// CatchupThreshold: when a source holds more than this many ledgers
 	// beyond the cursor, reads go through a BufferedStorageBackend.
@@ -811,7 +815,7 @@ func (p *producer[P]) read(ctx context.Context, r route) (Ledger, error) {
 		end = min(end, p.bsbAvoid-1)
 	}
 	if p.reader == nil && end >= p.next && end-p.next >= o.CatchupThreshold {
-		rr, err := openRange(ctx, r.src, p.next, end, o.BSB)
+		rr, err := openRange(ctx, r.src, p.next, end, o.BSB, o.AnyLCMVersion)
 		if err != nil {
 			p.s.log.Warn("open catch-up reader", "source", r.src.Name(), "err", err)
 		} else {
@@ -840,7 +844,7 @@ func (p *producer[P]) read(ctx context.Context, r route) (Ledger, error) {
 		p.s.log.Info("catch-up reader stopped; reading with single GETs", "source", r.src.Name(), "ledger", p.next, "err", err)
 		p.closeReader()
 	}
-	return readOne(ctx, r.src, p.next)
+	return readOne(ctx, r.src, p.next, o.AnyLCMVersion)
 }
 
 func (p *producer[P]) closeReader() {

@@ -410,6 +410,55 @@ var realLedgers = sync.OnceValues(func() ([]RealLedger, error) {
 	return out, nil
 })
 
+// History fixtures: pubnet ledgers from before go-live, as the AWS lake
+// serves them, for `worker clickhouse-backfill`. One with transactions for
+// every protocol that ran on pubnet (1–13 and 15–29; LedgerCloseMeta V0
+// until protocol 19, V1 for 20–22, V2 from 23), chosen small, and between
+// them: the first transactions' formats, an inflation payout (13806173),
+// trades in each form (the V0 record before protocol 18, the order book
+// and liquidity pools after), fee bumps, muxed accounts, claimable
+// balances, pool deposits and withdrawals, clawbacks, sponsorships, failed
+// transactions, and Soroban calls with transfers of a token that is not a
+// Stellar Asset Contract under protocol 22 (55459804).
+//
+//go:embed testdata/history/*.xdr.zst
+var historyFS embed.FS
+
+var historyLedgers = sync.OnceValues(func() ([]RealLedger, error) {
+	entries, err := fs.ReadDir(historyFS, "testdata/history")
+	if err != nil {
+		return nil, err
+	}
+	var out []RealLedger
+	for _, e := range entries {
+		seq, err := strconv.ParseUint(strings.TrimSuffix(e.Name(), ".xdr.zst"), 10, 32)
+		if err != nil {
+			return nil, fmt.Errorf("fixture %s: %w", e.Name(), err)
+		}
+		body, err := historyFS.ReadFile("testdata/history/" + e.Name())
+		if err != nil {
+			return nil, err
+		}
+		lcm, _, err := sep54.DecodeHistoryLedger(uint32(seq), body)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, RealLedger{Seq: uint32(seq), Body: body, LCM: lcm})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
+	return out, nil
+})
+
+// HistoryLedgers returns the history fixtures in ascending order. The
+// LedgerCloseMetas are shared; callers must not modify them.
+func HistoryLedgers() []RealLedger {
+	ls, err := historyLedgers()
+	if err != nil {
+		panic(err)
+	}
+	return ls
+}
+
 // RealLedgers returns the checked-in pubnet ledgers in ascending order. The
 // LedgerCloseMetas are shared; callers must not modify them.
 func RealLedgers() []RealLedger {
