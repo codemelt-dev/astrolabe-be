@@ -22,7 +22,7 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 15 || all[len(all)-1].Name != "offers" {
+	if len(all) != 16 || all[len(all)-1].Name != "trades" {
 		t.Fatalf("%d migrations, last %q", len(all), all[len(all)-1].Name)
 	}
 	stmts := 0
@@ -48,8 +48,8 @@ func TestMigrations(t *testing.T) {
 			}
 		}
 	}
-	if stmts != 49 { // 23 tables and 2 materialized views, plus daily_stats' refreshable one; 21 ALTERs for the storage, 2 for on_offers
-		t.Errorf("%d statements, want 49", stmts)
+	if stmts != 52 { // 24 tables and 2 materialized views, plus daily_stats' refreshable one; 23 ALTERs for the storage, 2 for on_offers
+		t.Errorf("%d statements, want 52", stmts)
 	}
 }
 
@@ -127,6 +127,7 @@ func TestColumnsOfRealLedgers(t *testing.T) {
 		want["account_activity"] += len(p.Activity)
 		want["contract_calls"] += len(p.Calls)
 		want["contract_creations"] += len(p.Creations)
+		want["trades"] += len(p.Trades)
 		if p.State != nil {
 			t.Fatal("history-only processing returned state changes")
 		}

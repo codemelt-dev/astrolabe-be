@@ -45,7 +45,11 @@ var tables = []table{
 		"function", "caller", "successful", "return_value"}, build: callColumns},
 	{name: "contract_creations", seqCol: "ledger_sequence", cols: []string{"contract_id", "ledger_sequence", "closed_at", "tx_index", "op_index",
 		"creator", "via_contract", "executable", "wasm_hash", "asset"}, build: creationColumns},
+	{name: tradesTable, seqCol: "ledger_sequence", cols: []string{"ledger_sequence", "closed_at", "tx_index", "op_index", "position", "venue",
+		"offer_id", "seller", "buyer", "sold_asset", "sold_amount", "bought_asset", "bought_amount"}, build: tradeColumns},
 }
+
+const tradesTable = "trades"
 
 func (t table) insert() string {
 	return "INSERT INTO " + t.name + " (" + strings.Join(t.cols, ", ") + ")"
@@ -261,6 +265,27 @@ func creationColumns(batch []*explorer.Prepared) ([]any, int, error) {
 		}
 	}
 	return []any{contract, seq, closed, txIdx, opIdx, creator, via, executable, wasm, asset}, n, nil
+}
+
+func tradeColumns(batch []*explorer.Prepared) ([]any, int, error) {
+	n := 0
+	for _, p := range batch {
+		n += len(p.Trades)
+	}
+	var (
+		seq, txIdx, opIdx, pos             = mk[uint32](n), mk[uint32](n), mk[uint32](n), mk[uint32](n)
+		closed                             = mk[time.Time](n)
+		venue, seller, buyer, sold, bought = mk[string](n), mk[string](n), mk[string](n), mk[string](n), mk[string](n)
+		offer, soldAmt, boughtAmt          = mk[int64](n), mk[int64](n), mk[int64](n)
+	)
+	for _, p := range batch {
+		for _, t := range p.Trades {
+			seq, closed, txIdx, opIdx, pos = append(seq, p.Ledger.Sequence), append(closed, p.Ledger.ClosedAt), append(txIdx, t.TxIndex), append(opIdx, t.OpIndex), append(pos, t.Position)
+			venue, offer, seller, buyer = append(venue, t.Venue), append(offer, t.OfferID), append(seller, t.Seller), append(buyer, t.Buyer)
+			sold, soldAmt, bought, boughtAmt = append(sold, t.SoldAsset), append(soldAmt, t.SoldAmount), append(bought, t.BoughtAsset), append(boughtAmt, t.BoughtAmount)
+		}
+	}
+	return []any{seq, closed, txIdx, opIdx, pos, venue, offer, seller, buyer, sold, soldAmt, bought, boughtAmt}, n, nil
 }
 
 func mk[T any](n int) []T { return make([]T, 0, n) }

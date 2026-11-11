@@ -39,6 +39,7 @@ type Prepared struct {
 	Activity     []ActivityRow
 	Calls        []ContractCallRow
 	Creations    []ContractCreationRow
+	Trades       []TradeRow
 	// State are the ledger's current-state changes (Processor only):
 	// compacted changes, then evictions.
 	State []StateChange
@@ -78,6 +79,7 @@ type mode uint8
 const (
 	withHistory mode = 1 << iota // transactions, operations, events, transfers and what derives from them
 	withState                    // the current-state changes
+	withTrades                   // the trades alone, of what withHistory extracts
 )
 
 // Processor returns the explorer pipeline's processLedger for the given
@@ -95,6 +97,15 @@ func Processor(passphrase string) sequencer.Processor[*Prepared] {
 func HistoryProcessor(passphrase string) sequencer.Processor[*Prepared] {
 	return func(l sequencer.Ledger) (*Prepared, error) {
 		return process(passphrase, l, withHistory)
+	}
+}
+
+// TradesProcessor extracts the ledger row and the trades alone, for filling
+// the trades of ledgers whose other history is already stored (`worker
+// clickhouse-backfill --trades-only`).
+func TradesProcessor(passphrase string) sequencer.Processor[*Prepared] {
+	return func(l sequencer.Ledger) (*Prepared, error) {
+		return process(passphrase, l, withTrades)
 	}
 }
 
@@ -130,6 +141,10 @@ func process(passphrase string, l sequencer.Ledger, m mode) (*Prepared, error) {
 		if err := p.history(passphrase, l.LCM); err != nil {
 			return nil, err
 		}
+	} else if m&withTrades != 0 {
+		if err := p.trades(passphrase, l.LCM); err != nil {
+			return nil, err
+		}
 	}
 	if m&withState != 0 {
 		var err error
@@ -141,6 +156,32 @@ func process(passphrase string, l sequencer.Ledger, m mode) (*Prepared, error) {
 		}
 	}
 	return p, nil
+}
+
+// trades extracts the ledger's trades alone.
+func (p *Prepared) trades(passphrase string, lcm xdr.LedgerCloseMeta) error {
+	seq := p.Ledger.Sequence
+	reader, err := ingest.NewLedgerTransactionReaderFromLedgerCloseMeta(passphrase, lcm)
+	if err != nil {
+		return fmt.Errorf("ledger %d: %w", seq, err)
+	}
+	for {
+		tx, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("ledger %d: read transaction: %w", seq, err)
+		}
+		trades, err := tradeRowsOf(tx)
+		if err != nil {
+			return fmt.Errorf("ledger %d tx %d trades: %w", seq, tx.Index, err)
+		}
+		for i := range trades {
+			p.size += trades[i].size()
+		}
+		p.Trades = append(p.Trades, trades...)
+	}
 }
 
 // history extracts the ledger's history rows.
@@ -162,6 +203,13 @@ func (p *Prepared) history(passphrase string, lcm xdr.LedgerCloseMeta) error {
 		}
 		if err != nil {
 			return fmt.Errorf("ledger %d: read transaction: %w", seq, err)
+		}
+		// Events, transfers and return values are read from transaction
+		// meta V4, which every ledger has from protocol 23 on, and every
+		// older one the AWS lake serves. Anything else halts, rather than
+		// losing them silently.
+		if tx.UnsafeMeta.V != 4 {
+			return fmt.Errorf("ledger %d tx %d: transaction meta V%d, only V4 is processed", seq, tx.Index, tx.UnsafeMeta.V)
 		}
 		row, err := transactionRow(tx, seq)
 		if err != nil {
@@ -195,6 +243,15 @@ func (p *Prepared) history(passphrase string, lcm xdr.LedgerCloseMeta) error {
 		p.Calls = append(p.Calls, calls...)
 		p.Creations = append(p.Creations, creations...)
 		p.size += int64(len(calls)*200 + len(creations)*200)
+
+		trades, err := tradeRowsOf(tx)
+		if err != nil {
+			return fmt.Errorf("ledger %d tx %d trades: %w", seq, tx.Index, err)
+		}
+		for i := range trades {
+			p.size += trades[i].size()
+		}
+		p.Trades = append(p.Trades, trades...)
 
 		a, err := activityOf(tx, ops, passphrase)
 		if err != nil {
