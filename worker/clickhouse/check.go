@@ -66,16 +66,8 @@ func Check(ctx context.Context, conn driver.Conn, pipeline string, from, to uint
 	if r.From > r.To {
 		return r, fmt.Errorf("nothing to check: [%d, %d] is above the cursor %d", from, to, cur)
 	}
-	q := func(sql string, dest ...any) error { return conn.QueryRow(ctx, sql, r.From, r.To).Scan(dest...) }
-	if err := q("SELECT count(), uniqExact(sequence), sum(tx_count), sum(op_count) FROM ledgers WHERE sequence BETWEEN ? AND ?",
-		&r.Ledgers, &r.Distinct, &r.TxCount, &r.OpCount); err != nil {
-		return r, fmt.Errorf("ledgers: %w", err)
-	}
-	if err := q("SELECT count() FROM transactions WHERE ledger_sequence BETWEEN ? AND ?", &r.Transactions); err != nil {
-		return r, fmt.Errorf("transactions: %w", err)
-	}
-	if err := q("SELECT count() FROM operations WHERE ledger_sequence BETWEEN ? AND ?", &r.Operations); err != nil {
-		return r, fmt.Errorf("operations: %w", err)
+	if err := r.count(ctx, conn); err != nil {
+		return r, err
 	}
 	for _, t := range tables {
 		var n uint64
@@ -85,4 +77,28 @@ func Check(ctx context.Context, conn driver.Conn, pipeline string, from, to uint
 		r.AboveCursor[t.name] = n
 	}
 	return r, nil
+}
+
+// CheckSegment reads the consistency of a backfill segment [from, to] that
+// has reached its end: its ledgers, transactions and operations. Rows above
+// it belong to other pipelines, so none are counted as left over.
+func CheckSegment(ctx context.Context, conn driver.Conn, from, to uint32) (CheckResult, error) {
+	r := CheckResult{From: from, To: to, Cursor: to, AboveCursor: map[string]uint64{}}
+	return r, r.count(ctx, conn)
+}
+
+// count fills the rows of [From, To] and the ledgers' own counts.
+func (r *CheckResult) count(ctx context.Context, conn driver.Conn) error {
+	q := func(sql string, dest ...any) error { return conn.QueryRow(ctx, sql, r.From, r.To).Scan(dest...) }
+	if err := q("SELECT count(), uniqExact(sequence), sum(tx_count), sum(op_count) FROM ledgers WHERE sequence BETWEEN ? AND ?",
+		&r.Ledgers, &r.Distinct, &r.TxCount, &r.OpCount); err != nil {
+		return fmt.Errorf("ledgers: %w", err)
+	}
+	if err := q("SELECT count() FROM transactions WHERE ledger_sequence BETWEEN ? AND ?", &r.Transactions); err != nil {
+		return fmt.Errorf("transactions: %w", err)
+	}
+	if err := q("SELECT count() FROM operations WHERE ledger_sequence BETWEEN ? AND ?", &r.Operations); err != nil {
+		return fmt.Errorf("operations: %w", err)
+	}
+	return nil
 }

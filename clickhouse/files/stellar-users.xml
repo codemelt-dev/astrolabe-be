@@ -131,8 +131,9 @@
             </grants>
         </stellar_owner>
 
-        <!-- worker clickhouse-ingest (and a later clickhouse-backfill). ALTER DELETE: the recovery delete above the
-             cursor (README §7.3). -->
+        <!-- worker clickhouse-ingest and clickhouse-backfill. ALTER DELETE: the recovery delete above the
+             cursor (README §7.3). ALTER MOVE PARTITION: the backfill moves tx_by_hash's finished
+             partitions to the data volume (README §7.6). -->
         <stellar_writer>
             <profile>writer</profile>
             <quota>default</quota>
@@ -142,6 +143,7 @@
             </networks>
             <grants>
                 <query>GRANT SELECT, INSERT, ALTER DELETE ON stellar.*</query>
+                <query>GRANT ALTER MOVE PARTITION ON stellar.tx_by_hash</query>
             </grants>
         </stellar_writer>
 

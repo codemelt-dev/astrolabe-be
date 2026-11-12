@@ -70,6 +70,15 @@ func Init(ctx context.Context, conn driver.Conn, pipeline string, seq uint32, ha
 type SinkOptions struct {
 	Pipeline string // default Pipeline
 	Log      *slog.Logger
+	// Ceiling bounds a closed-range pipeline (`worker clickhouse-backfill`):
+	// it never commits a ledger above it, and its cleanup deletes only rows
+	// in (cursor, Ceiling]. Above the ceiling are other pipelines' rows:
+	// newer segments, and the live pipeline's. 0: no ceiling (the live
+	// pipeline, which owns everything above its cursor).
+	Ceiling uint32
+	// TradesOnly writes and cleans up the trades table alone, for ledgers
+	// whose other history is already stored.
+	TradesOnly bool
 }
 
 // Sink writes the clickhouse pipeline's batches (sequencer.Sink).
@@ -148,6 +157,9 @@ func (s *Sink) Commit(ctx context.Context, batch []*explorer.Prepared) error {
 	s.mu.Lock()
 	cur, hash := s.seq, s.hash
 	s.mu.Unlock()
+	if s.o.Ceiling != 0 && last.Sequence > s.o.Ceiling {
+		return sequencer.Halt(last.Sequence, fmt.Errorf("the batch ends at %d, above the pipeline's ceiling %d", last.Sequence, s.o.Ceiling))
+	}
 	switch {
 	case cur == last.Sequence && hash == last.Hash:
 		s.o.Log.Info("batch was already committed", "pipeline", s.o.Pipeline, "first", first.Sequence, "last", last.Sequence)
@@ -184,9 +196,22 @@ func (s *Sink) setDirty() {
 	s.mu.Unlock()
 }
 
+// tables are the tables this sink writes and cleans up.
+func (s *Sink) tables() []table {
+	if !s.o.TradesOnly {
+		return tables
+	}
+	for _, t := range tables {
+		if t.name == tradesTable {
+			return []table{t}
+		}
+	}
+	panic("no trades table")
+}
+
 // write inserts the batch into every table, one columnar insert each.
 func (s *Sink) write(ctx context.Context, batch []*explorer.Prepared, first uint32) error {
-	for _, t := range tables {
+	for _, t := range s.tables() {
 		if t.build == nil {
 			continue // filled by a materialized view
 		}
@@ -215,20 +240,25 @@ func (s *Sink) write(ctx context.Context, batch []*explorer.Prepared, first uint
 	return nil
 }
 
-// cleanAbove deletes every history row above the cursor: what a commit that
-// failed half-way, or a run that stopped in one, left behind. Only tables
-// that hold such rows get a (lightweight) DELETE.
+// cleanAbove deletes every history row above the cursor, up to the ceiling
+// if there is one: what a commit that failed half-way, or a run that
+// stopped in one, left behind. Only tables that hold such rows get a
+// (lightweight) DELETE.
 func (s *Sink) cleanAbove(ctx context.Context, cursor uint32) error {
-	for _, t := range tables {
+	for _, t := range s.tables() {
+		where, args := t.seqCol+" > ?", []any{cursor}
+		if s.o.Ceiling != 0 {
+			where, args = where+" AND "+t.seqCol+" <= ?", append(args, s.o.Ceiling)
+		}
 		var n uint64
-		if err := s.conn.QueryRow(ctx, fmt.Sprintf("SELECT count() FROM %s WHERE %s > ?", t.name, t.seqCol), cursor).Scan(&n); err != nil {
+		if err := s.conn.QueryRow(ctx, fmt.Sprintf("SELECT count() FROM %s WHERE %s", t.name, where), args...).Scan(&n); err != nil {
 			return fmt.Errorf("%s: count rows above the cursor: %w", t.name, err)
 		}
 		if n == 0 {
 			continue
 		}
-		s.o.Log.Warn("deleting rows above the cursor", "pipeline", s.o.Pipeline, "table", t.name, "cursor", cursor, "rows", n)
-		if err := s.conn.Exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s > ?", t.name, t.seqCol), cursor); err != nil {
+		s.o.Log.Warn("deleting rows above the cursor", "pipeline", s.o.Pipeline, "table", t.name, "cursor", cursor, "ceiling", s.o.Ceiling, "rows", n)
+		if err := s.conn.Exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s", t.name, where), args...); err != nil {
 			return fmt.Errorf("%s: delete rows above the cursor: %w", t.name, err)
 		}
 	}

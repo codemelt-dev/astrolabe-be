@@ -1,6 +1,7 @@
 package clickhouse
 
 import (
+	"fmt"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -225,4 +226,32 @@ func TestBadAmountHalts(t *testing.T) {
 		}
 	}
 	t.Skip("no transfers in the real ledgers")
+}
+
+// The one-off daily_stats computation is the view's query with a range of
+// days for its window.
+func TestDailyStatsQuery(t *testing.T) {
+	q, err := dailyStatsQuery(time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2020, 1, 31, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const window = "toDate(closed_at) BETWEEN toDate('2020-01-01') AND toDate('2020-01-31')"
+	if !strings.HasPrefix(q, "INSERT INTO daily_stats\nSELECT l.day AS day,") || strings.Count(q, window) != dailyStatsWindows ||
+		strings.Contains(q, "since") || strings.Contains(q, ";") {
+		t.Fatalf("query:\n%s", q)
+	}
+}
+
+// Segments are aligned to multiples of their size, newest first.
+func TestSegments(t *testing.T) {
+	got := fmt.Sprint(Segments(2, 3_499_999, 1_000_000))
+	if want := "[[3000000 3499999] [2000000 2999999] [1000000 1999999] [2 999999]]"; got != want {
+		t.Errorf("segments %s, want %s", got, want)
+	}
+	if got := fmt.Sprint(Segments(64_806_592, 65_440_000, 1_000_000)); got != "[[65000000 65440000] [64806592 64999999]]" {
+		t.Errorf("segments %s", got)
+	}
+	if got := fmt.Sprint(Segments(5, 9, 1_000_000)); got != "[[5 9]]" {
+		t.Errorf("segments %s", got)
+	}
 }
