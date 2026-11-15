@@ -51,7 +51,10 @@
              cache made them 3× faster; a query that scans may raise max_threads to 4.
              Measured on 2026-10-09 with the frontend's page queries: at most 0.33 s, 53 MB and 50 rows each; the
              server peaks at ~1,350 a second from 8 concurrent on (latency grows, throughput doesn't),
-             while ingest keeps up. Hence 10 s and 1 GB a query, 4 GB in all, 16 at once. -->
+             while ingest keeps up. Hence 10 s and 1 GB a query, 4 GB in all, 16 at once.
+             No column statistics: the planner loads them from every part, ~0.15 s a query with
+             the whole history in the tables, and lookups by key gain nothing from them
+             (2026-11-15: a transaction by hash 0.18 s with them, 0.05 s without). -->
         <api>
             <readonly>2</readonly>
             <max_execution_time>10</max_execution_time>
@@ -59,6 +62,7 @@
             <max_memory_usage_for_user>4000000000</max_memory_usage_for_user>
             <max_threads>1</max_threads>
             <use_uncompressed_cache>1</use_uncompressed_cache>
+            <use_statistics>0</use_statistics>
             <max_concurrent_queries_for_user>16</max_concurrent_queries_for_user>
             <max_result_rows>1000000</max_result_rows>
             <output_format_json_quote_64bit_integers>1</output_format_json_quote_64bit_integers>
