@@ -133,13 +133,15 @@
 
         <!-- worker clickhouse-ingest and clickhouse-backfill. ALTER DELETE: the recovery delete above the
              cursor (README §7.3). ALTER MOVE PARTITION: the backfill moves tx_by_hash's finished
-             partitions to the data volume (README §7.6). -->
+             partitions to the data volume (README §7.6). The psql host may log in too: a backfill
+             can run there as well, so that its processing leaves this host's cores to ClickHouse. -->
         <stellar_writer>
             <profile>writer</profile>
             <quota>default</quota>
             <networks>
                 <ip>127.0.0.1</ip>
                 <ip>::1</ip>
+                <ip>10.0.1.2</ip>
             </networks>
             <grants>
                 <query>GRANT SELECT, INSERT, ALTER DELETE ON stellar.*</query>

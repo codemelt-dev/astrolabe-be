@@ -588,6 +588,38 @@ func TestFixedRange(t *testing.T) {
 	e2.checkCommitted(449)
 }
 
+// With BatchWait (a backfill), a batch fills up to its limit even when the
+// reads are slower than the commits; without it, what is ready is committed
+// at once.
+func TestBatchWaitFillsBatches(t *testing.T) {
+	for _, wait := range []time.Duration{0, 10 * time.Second} {
+		e := newEnv(t, 400, 60)
+		e.toAWS(400, 459)
+		e.aws.Fail = func(uint32) error { time.Sleep(3 * time.Millisecond); return nil }
+		o := e.options()
+		o.Fixed = &Fixed{Source: e.aws, To: 459}
+		o.CatchupThreshold = 1000 // single reads: one slow ledger at a time
+		o.MaxBatchLedgers, o.BatchWait = 20, wait
+		s, err := New(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		if err := s.Run(ctx); err != nil {
+			t.Fatal(err)
+		}
+		cancel()
+		e.checkCommitted(459)
+		_, batches := e.sink.snapshot()
+		if wait == 0 && len(batches) <= 3 {
+			t.Errorf("without BatchWait: %d batches %v, expected many small ones", len(batches), batches)
+		}
+		if wait != 0 && fmt.Sprint(batches) != "[20 20 20]" {
+			t.Errorf("with BatchWait: batches %v, want [20 20 20]", batches)
+		}
+	}
+}
+
 // Shutdown lets the in-flight commit finish.
 func TestShutdownFinishesInFlightCommit(t *testing.T) {
 	e := newEnv(t, 10, 1)

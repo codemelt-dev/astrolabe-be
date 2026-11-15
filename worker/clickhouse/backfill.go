@@ -68,6 +68,12 @@ type BackfillOptions struct {
 	// MaxBatchLedgers and MaxBatchBytes bound one commit of one segment.
 	MaxBatchLedgers int
 	MaxBatchBytes   int64
+	// BatchWait is how long a commit waits to fill up to those bounds
+	// (sequencer.Options.BatchWait). The reads and the processing are
+	// slower than the commits, so without it a segment commits a handful
+	// of ledgers at a time: thousands of small parts for ClickHouse to
+	// merge.
+	BatchWait time.Duration
 	// ReadWorkers is how many ledgers a segment downloads at once
 	// (default: the sequencer's 8). A read from the AWS lake takes about a
 	// quarter of a second from Europe whatever the ledger's size, so this
@@ -314,6 +320,7 @@ func (o BackfillOptions) runSegment(ctx context.Context, s [2]uint32) (uint64, e
 			BSB:             o.bsb(),
 			MaxBatchLedgers: o.MaxBatchLedgers,
 			MaxBatchBytes:   o.MaxBatchBytes,
+			BatchWait:       o.BatchWait,
 			Log:             log,
 			Alert:           func(kind, msg string, args ...any) { log.Error(msg, append([]any{"alert", kind}, args...)...) },
 			OnCommit: func(c sequencer.CommitInfo) {

@@ -99,6 +99,11 @@ type Options[P Prepared] struct {
 	BSB              ledgerbackend.BufferedStorageBackendConfig
 	MaxBatchLedgers  int
 	MaxBatchBytes    int64
+	// BatchWait: how long a batch waits for more ledgers before it is
+	// committed short of its limits. 0 commits what is ready at once, which
+	// is right at the tip. A backfill fills its batches: fewer, larger
+	// inserts mean fewer parts for the store to merge.
+	BatchWait time.Duration
 	// LakeGrace: how long the lake may be unavailable before failing over.
 	LakeGrace time.Duration
 	// ArchiveGrace: how long archive reads may fail before the AWS lake.
@@ -325,21 +330,42 @@ func (s *Sequencer[P]) commitLoop(ctx context.Context, items <-chan item[P], bud
 				return nil
 			}
 		}
+		// With BatchWait, an empty channel is waited on until the deadline.
+		var wait <-chan time.Time
+		var timer *time.Timer
+		if s.o.BatchWait > 0 {
+			timer = time.NewTimer(s.o.BatchWait)
+			wait = timer.C
+		}
 	drain:
 		for len(batch) < s.o.MaxBatchLedgers && bytes < s.o.MaxBatchBytes {
+			var it item[P]
+			var ok bool
 			select {
-			case it, ok := <-items:
-				if !ok {
-					break drain
-				}
-				if bytes+it.size > s.o.MaxBatchBytes {
-					pending = &it
-					break drain
-				}
-				batch, bytes = append(batch, it), bytes+it.size
+			case it, ok = <-items:
 			default:
+				if wait == nil {
+					break drain
+				}
+				select {
+				case it, ok = <-items:
+				case <-wait:
+					break drain
+				case <-ctx.Done():
+					break drain
+				}
+			}
+			if !ok {
 				break drain
 			}
+			if bytes+it.size > s.o.MaxBatchBytes {
+				pending = &it
+				break drain
+			}
+			batch, bytes = append(batch, it), bytes+it.size
+		}
+		if timer != nil {
+			timer.Stop()
 		}
 		err := s.commit(ctx, batch, bytes)
 		budget.release(bytes)

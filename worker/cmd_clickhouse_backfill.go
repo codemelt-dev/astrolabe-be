@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"os/signal"
+	"runtime/debug"
 	"syscall"
 	"time"
 
@@ -32,6 +34,7 @@ func setupClickhouseBackfill(fs *flag.FlagSet) runFunc {
 	tradesOnly := fs.Bool("trades-only", false, "write only the trades, of ledgers from clickhouse.first_ledger on")
 	batchLedgers := fs.Int("batch-ledgers", 2000, "ledgers per commit of a segment, at most (the early years' ledgers are nearly empty)")
 	batchMiB := fs.Int("batch-mib", 128, "MiB of rows per commit of a segment, at most")
+	batchWait := fs.Duration("batch-wait", 30*time.Second, "how long a commit waits to fill up to those bounds")
 	readWorkers := fs.Int("read-workers", 32, "ledgers a segment downloads at once")
 	verifyEvery := fs.Uint("verify-every", 1000, "check the transfers and the trades of every ledger whose sequence is a multiple of this (0: none)")
 	return func(ctx context.Context, env runEnv) error {
@@ -46,6 +49,13 @@ func setupClickhouseBackfill(fs *flag.FlagSet) runFunc {
 		first := cfg.ClickHouse.FirstLedger
 		if first < 2 {
 			return fmt.Errorf("%w: set clickhouse.first_ledger (the explorer's go-live)", errUsage)
+		}
+		// Decoding and processing allocate about 40 MB a ledger, nearly all
+		// of it short-lived: with the default GOGC a third of the CPU goes
+		// to the collector. GOMEMLIMIT (the unit sets it) still bounds the
+		// heap.
+		if os.Getenv("GOGC") == "" {
+			debug.SetGCPercent(400)
 		}
 		ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
@@ -93,7 +103,7 @@ func setupClickhouseBackfill(fs *flag.FlagSet) runFunc {
 		log.Info("starting clickhouse-backfill", "version", version, "from", a, "to", b, "first_ledger", first)
 		res, err := clickhouse.Backfill(ctx, clickhouse.BackfillOptions{
 			Open: open, Source: src, From: a, To: b, Segment: uint32(*segment), Parallel: *parallel, FirstLedger: first,
-			TradesOnly: *tradesOnly, MaxBatchLedgers: *batchLedgers, MaxBatchBytes: int64(*batchMiB) << 20, ReadWorkers: *readWorkers,
+			TradesOnly: *tradesOnly, MaxBatchLedgers: *batchLedgers, MaxBatchBytes: int64(*batchMiB) << 20, BatchWait: *batchWait, ReadWorkers: *readWorkers,
 			VerifyEvery: uint32(*verifyEvery), Passphrase: network.PublicNetworkPassphrase, Log: log,
 		})
 		fmt.Fprintf(env.stdout, "segments %d: %d done before, %d done now; %d ledgers committed\n", res.Segments, res.DoneBefore, res.Done, res.Ledgers)
