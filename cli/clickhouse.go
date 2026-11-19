@@ -51,7 +51,7 @@ var clickhouseSettings = []setting{
 // clickhouseSteps is the step table, in order.
 func clickhouseSteps() []step {
 	return []step{
-		{"system", "packages, UTC, sshd hardening, journald cap, needrestart", psqlSystemCheck, psqlSystemApply, nil},
+		{"system", "packages, UTC, sshd hardening, journald cap, needrestart, zram swap", psqlSystemCheck, psqlSystemApply, nil},
 		{"network", "optional: the VLAN interface with the private IP (netplan)", networkCheck, networkApply, networkHealth},
 		{"firewall", "nftables: the whole ruleset, default drop", psqlFirewallCheck, psqlFirewallApply, psqlFirewallHealth},
 		{"disks", "the data volume: xfs, fstab, mounted on " + chDataMount, chDisksCheck, chDisksApply, chDisksHealth},

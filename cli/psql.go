@@ -58,7 +58,7 @@ func monitoring(s settings) bool { return s["monitoring_enabled"] == "yes" }
 // psqlSteps is the step table, in order.
 func psqlSteps() []step {
 	return []step{
-		{"system", "packages, UTC, sshd hardening, journald cap, needrestart", psqlSystemCheck, psqlSystemApply, nil},
+		{"system", "packages, UTC, sshd hardening, journald cap, needrestart, zram swap", psqlSystemCheck, psqlSystemApply, nil},
 		{"network", "optional: the VLAN interface with the private IP (netplan)", networkCheck, networkApply, networkHealth},
 		{"firewall", "nftables: the whole ruleset, default drop", psqlFirewallCheck, psqlFirewallApply, psqlFirewallHealth},
 		{"postgres", "PostgreSQL 18 (PGDG), cluster, conf.d, pg_hba, TLS, huge pages", postgresCheck, postgresApply, postgresHealth},
@@ -225,7 +225,10 @@ func psqlSystemCheck(e *env) result {
 	if p := firstMismatch(psqlSystemFiles(e)...); p != "" {
 		return change("write %s", p)
 	}
-	return ok("packages, UTC, sshd, journald, needrestart")
+	if c := zramCheck(e.asset("files/zram-generator.conf")); c != "" {
+		return change("%s", c)
+	}
+	return ok("packages, UTC, sshd, journald, needrestart, zram")
 }
 
 func psqlSystemApply(e *env) error {
@@ -261,6 +264,8 @@ func psqlSystemApply(e *env) error {
 			return err
 		}
 	}
-	_, err := e.place(files[2]) // needrestart reads it on its next run
-	return err
+	if _, err := e.place(files[2]); err != nil { // needrestart reads it on its next run
+		return err
+	}
+	return e.zram(e.asset("files/zram-generator.conf"))
 }

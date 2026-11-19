@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -313,6 +314,113 @@ func (e *env) install(pkgs ...string) error {
 		return err
 	}
 	e.note("installed %s", strings.Join(todo, " "))
+	return nil
+}
+
+// Swap
+
+const zramConf = "/etc/systemd/zram-generator.conf"
+
+// zramModules returns the packages with the zram module for the running
+// kernel and every installed one. It is in linux-modules-extra, which the
+// cloud images' kernel (linux-image-virtual) comes without. A kernel that
+// has the module needs no package.
+func zramModules() []string {
+	list, _ := probe("dpkg-query", "-W", "-f=${Package} ${db:Status-Abbrev}\n", "linux-image-[0-9]*")
+	running, _ := probe("uname", "-r")
+	var pkgs []string
+	for _, k := range kernels(list, running) {
+		if m, _ := filepath.Glob("/lib/modules/" + k + "/kernel/drivers/block/zram/zram.ko*"); len(m) == 0 {
+			pkgs = append(pkgs, "linux-modules-extra-"+k)
+		}
+	}
+	return pkgs
+}
+
+// kernels returns the versions of the installed kernel images in dpkg's
+// list ("<package> <status>" lines), and the running one, sorted.
+func kernels(list, running string) []string {
+	seen := map[string]bool{}
+	if running != "" {
+		seen[running] = true
+	}
+	for _, line := range strings.Split(list, "\n") {
+		pkg, status, _ := strings.Cut(line, " ")
+		// a version starts with a digit: linux-image-virtual is the metapackage
+		if v := strings.TrimPrefix(pkg, "linux-image-"); strings.HasPrefix(status, "ii") && v != "" && v[0] >= '0' && v[0] <= '9' {
+			seen[v] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func zramOn() bool {
+	b, _ := os.ReadFile("/proc/swaps")
+	return bytes.Contains(b, []byte("/dev/zram0 "))
+}
+
+// zramCheck returns what the zram swap lacks, or "".
+func zramCheck(conf []byte) string {
+	if m := missing(append([]string{"systemd-zram-generator"}, zramModules()...)...); len(m) > 0 {
+		return "install " + strings.Join(m, " ")
+	}
+	if !(file{zramConf, conf, 0o644, "root:root"}).matches() {
+		return "write " + zramConf
+	}
+	if !zramOn() {
+		return "start the zram swap"
+	}
+	return ""
+}
+
+// zram sets up swap compressed in RAM: the module, systemd's generator, its
+// configuration, and the device. A changed configuration waits for the next
+// boot when the swap is on: resetting the device would pull every swapped
+// page back into RAM at once.
+func (e *env) zram(conf []byte) error {
+	if err := e.install("systemd-zram-generator"); err != nil {
+		return err
+	}
+	if m := missing(zramModules()...); len(m) > 0 {
+		if err := e.install(m...); err != nil {
+			return err
+		}
+		// Marked automatic, apt removes them with their kernels; it keeps
+		// those of the kernels it keeps.
+		if _, err := e.run("apt-mark", append([]string{"auto"}, m...)...); err != nil {
+			return err
+		}
+	}
+	changed, err := e.place(file{zramConf, conf, 0o644, "root:root"})
+	if err != nil {
+		return err
+	}
+	if zramOn() {
+		if changed {
+			e.note("zram: the new configuration applies at the next boot")
+		}
+		return nil
+	}
+	// The generator makes the device's units from the configuration.
+	if _, err := e.run("systemctl", "daemon-reload"); err != nil {
+		return err
+	}
+	if _, err := e.run("modprobe", "zram"); err != nil {
+		return err
+	}
+	// The swap unit requires the device's setup (systemd-zram-setup@zram0).
+	if _, err := e.run("systemctl", "start", "dev-zram0.swap"); err != nil {
+		return err
+	}
+	if !zramOn() {
+		return errors.New("zram: /dev/zram0 isn't a swap after its start: see systemctl status systemd-zram-setup@zram0.service dev-zram0.swap")
+	}
+	e.note("zram swap on")
 	return nil
 }
 

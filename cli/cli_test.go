@@ -105,6 +105,21 @@ func TestRenderExamplesIsIdentity(t *testing.T) {
 	}
 }
 
+// The kernels that need the zram module: the installed images and the
+// running one, without the removed images dpkg still lists.
+func TestKernels(t *testing.T) {
+	list := "linux-image-6.8.0-137-generic rc \nlinux-image-6.8.0-146-generic ii \nlinux-image-6.8.0-149-generic ii \nlinux-image-virtual ii "
+	for running, want := range map[string]string{
+		"6.8.0-146-generic": "6.8.0-146-generic 6.8.0-149-generic",
+		"6.8.0-150-generic": "6.8.0-146-generic 6.8.0-149-generic 6.8.0-150-generic",
+		"":                  "6.8.0-146-generic 6.8.0-149-generic",
+	} {
+		if got := strings.Join(kernels(list, running), " "); got != want {
+			t.Errorf("running %q: %s", running, got)
+		}
+	}
+}
+
 // The step tables' order: each step relies on the ones before it.
 func TestSteps(t *testing.T) {
 	for h, want := range map[*host]string{

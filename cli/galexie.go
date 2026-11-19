@@ -32,7 +32,7 @@ var galexieSettings = []setting{
 // galexieSteps is the step table, in order: each step relies on the ones before.
 func galexieSteps() []step {
 	return []step{
-		{name: "system", about: "packages, UTC, sshd hardening, journald cap, needrestart, user stellar", check: galexieSystemCheck, apply: galexieSystemApply},
+		{name: "system", about: "packages, UTC, sshd hardening, journald cap, needrestart, user stellar, zram swap", check: galexieSystemCheck, apply: galexieSystemApply},
 		{name: "firewall", about: "nftables table for the private interface, loaded by stellar-firewall", check: galexieFirewallCheck, apply: galexieFirewallApply, health: galexieFirewallHealth},
 		{name: "disks", about: "/srv/core; /srv/lake on its own volume (fstab, mount, marker)", check: disksCheck, apply: disksApply, health: disksHealth},
 		{name: "docker", about: "Docker from its apt repository, local log driver, the pinned Galexie image", check: dockerCheck, apply: dockerApply},
@@ -72,7 +72,10 @@ func galexieSystemCheck(e *env) result {
 	if !userExists("stellar") {
 		return change("create user stellar")
 	}
-	return ok("packages, UTC, sshd, journald, needrestart, user stellar")
+	if c := zramCheck(e.asset("deploy/zram-generator.conf")); c != "" {
+		return change("%s", c)
+	}
+	return ok("packages, UTC, sshd, journald, needrestart, user stellar, zram")
 }
 
 func galexieSystemApply(e *env) error {
@@ -114,5 +117,8 @@ func galexieSystemApply(e *env) error {
 	if _, err := e.place(files[2]); err != nil { // read by needrestart on every run
 		return err
 	}
-	return e.systemUser("stellar", "/nonexistent")
+	if err := e.systemUser("stellar", "/nonexistent"); err != nil {
+		return err
+	}
+	return e.zram(e.asset("deploy/zram-generator.conf"))
 }
