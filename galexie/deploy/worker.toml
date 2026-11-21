@@ -64,7 +64,7 @@ network_tip = true                         # read the AWS public lake's tip as t
 unit = "stellar-galexie.service"
 metrics_url = "http://127.0.0.1:6061/metrics"
 # set: the pinned image (also in stellar-galexie.service and the repair command).
-image = "stellar/stellar-galexie:29.0.0@sha256:5269dfd9034948f3db8dd7595fe8aec88aae5480f712a78e2dea48a841d495a3"
+image = "stellar/stellar-galexie:30.0.1@sha256:de2336e56dd71646183f42f2b482df0cd3908a88b4ff01a313a3ec37cb4fe594"
 docker = "/usr/bin/docker"
 
 [watchdog]

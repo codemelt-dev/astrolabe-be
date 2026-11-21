@@ -12,7 +12,7 @@ ExecStartPre=-/usr/bin/docker rm -f stellar-galexie
 ExecStartPre=/usr/local/bin/worker-lake galexie-start --out /run/stellar-galexie/galexie.env
 ExecStart=/usr/bin/docker run --rm --name stellar-galexie --init --network host --stop-timeout 45 \
     -v /srv/core:/srv/core -v /etc/stellar/galexie.toml:/config.toml:ro --env-file /etc/stellar/gateway.env \
-    stellar/stellar-galexie:29.0.0@sha256:5269dfd9034948f3db8dd7595fe8aec88aae5480f712a78e2dea48a841d495a3 append --start ${START} --config-file /config.toml
+    stellar/stellar-galexie:30.0.1@sha256:de2336e56dd71646183f42f2b482df0cd3908a88b4ff01a313a3ec37cb4fe594 append --start ${START} --config-file /config.toml
 ExecStop=-/usr/bin/docker stop -t 45 stellar-galexie
 TimeoutStartSec=120
 TimeoutStopSec=60

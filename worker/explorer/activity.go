@@ -145,8 +145,8 @@ func entryOwners(e xdr.LedgerEntry, passphrase string) ([]string, error) {
 	return []string{a}, nil
 }
 
-// addressString is an ScAddress's G… or C… (a muxed account's G…); false for
-// claimable balances and liquidity pools.
+// addressString is an ScAddress's G… or C… (a muxed account's G…, a muxed
+// contract's C…); false for claimable balances and liquidity pools.
 func addressString(a xdr.ScAddress) (string, bool) {
 	switch a.Type {
 	case xdr.ScAddressTypeScAddressTypeAccount:
@@ -157,6 +157,9 @@ func addressString(a xdr.ScAddress) (string, bool) {
 		return s, err == nil
 	case xdr.ScAddressTypeScAddressTypeMuxedAccount:
 		s, err := strkey.Encode(strkey.VersionByteAccountID, a.MuxedAccount.Ed25519[:])
+		return s, err == nil
+	case xdr.ScAddressTypeScAddressTypeMuxedContract:
+		s, err := contractStrkey(a.MuxedContract.ContractId)
 		return s, err == nil
 	}
 	return "", false
