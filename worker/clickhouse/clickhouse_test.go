@@ -23,7 +23,7 @@ func TestMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(all) != 17 || all[len(all)-1].Name != "merge" {
+	if len(all) != 18 || all[len(all)-1].Name != "ledger_hash" {
 		t.Fatalf("%d migrations, last %q", len(all), all[len(all)-1].Name)
 	}
 	stmts := 0
@@ -34,8 +34,9 @@ func TestMigrations(t *testing.T) {
 			// be a no-op the second time: a CREATE … IF NOT EXISTS, an ADD
 			// COLUMN IF NOT EXISTS, or an ALTER that sets the storage policy
 			// or a TTL that moves parts to the data volume, or the merge of
-			// idle partitions (the same value again).
-			if !regexp.MustCompile(`^(CREATE (TABLE|MATERIALIZED VIEW) IF NOT EXISTS |ALTER TABLE \w+ ADD COLUMN IF NOT EXISTS )`).MatchString(s) &&
+			// idle partitions (the same value again), or an index added if
+			// missing and built again.
+			if !regexp.MustCompile(`^(CREATE (TABLE|MATERIALIZED VIEW) IF NOT EXISTS |ALTER TABLE \w+ ADD (COLUMN|INDEX) IF NOT EXISTS |ALTER TABLE \w+ MATERIALIZE INDEX \w+$)`).MatchString(s) &&
 				!moveTTL.MatchString(s) && !regexp.MustCompile(`^ALTER TABLE \w+ MODIFY SETTING (storage_policy = 'tiered'|min_age_to_force_merge_seconds = 86400, min_age_to_force_merge_on_partition_only = 1)$`).MatchString(s) {
 				t.Errorf("migration %d: not idempotent: %.60s", m.Version, s)
 			}
@@ -49,8 +50,8 @@ func TestMigrations(t *testing.T) {
 			}
 		}
 	}
-	if stmts != 62 { // 24 tables and 2 materialized views, plus daily_stats' refreshable one; 23 ALTERs for the storage, 2 for on_offers, 10 for the merge
-		t.Errorf("%d statements, want 62", stmts)
+	if stmts != 64 { // 24 tables and 2 materialized views, plus daily_stats' refreshable one; 23 ALTERs for the storage, 2 for on_offers, 10 for the merge, 2 for the ledger hash index
+		t.Errorf("%d statements, want 64", stmts)
 	}
 }
 
