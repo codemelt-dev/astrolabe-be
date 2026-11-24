@@ -253,7 +253,7 @@ func (p *Prepared) history(passphrase string, lcm xdr.LedgerCloseMeta) error {
 		}
 		p.Trades = append(p.Trades, trades...)
 
-		a, err := activityOf(tx, ops, passphrase)
+		a, err := activityOf(tx, ops, trades, passphrase)
 		if err != nil {
 			return fmt.Errorf("ledger %d tx %d activity: %w", seq, tx.Index, err)
 		}

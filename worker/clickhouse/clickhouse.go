@@ -34,6 +34,17 @@ const Pipeline = "clickhouse"
 // Open connects to ClickHouse as the writer (ingest, init, check), or as
 // the schema owner when owner is true (migrate).
 func Open(ctx context.Context, c config.ClickHouse, owner bool) (driver.Conn, error) {
+	return open(c, owner, 0)
+}
+
+// OpenLong is Open for statements that run longer than the driver's
+// 5-minute read timeout without returning anything, such as an INSERT …
+// SELECT over a whole month (FillActivityRoles).
+func OpenLong(ctx context.Context, c config.ClickHouse, owner bool) (driver.Conn, error) {
+	return open(c, owner, 4*time.Hour)
+}
+
+func open(c config.ClickHouse, owner bool, readTimeout time.Duration) (driver.Conn, error) {
 	user, file := c.User, c.PasswordFile
 	if owner {
 		user, file = c.MigrateUser, c.MigratePasswordFile
@@ -49,6 +60,7 @@ func Open(ctx context.Context, c config.ClickHouse, owner bool) (driver.Conn, er
 		// One connection for the sink and its queries; a second for the
 		// metrics' ping while a batch is being sent.
 		MaxOpenConns: 2,
+		ReadTimeout:  readTimeout, // 0: the driver's default
 	}
 	if c.CAFile != "" {
 		pem, err := os.ReadFile(c.CAFile)

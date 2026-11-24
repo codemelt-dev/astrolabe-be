@@ -156,3 +156,64 @@ func setupClickhouseDailyStats(fs *flag.FlagSet) runFunc {
 		return nil
 	}
 }
+
+// setupClickhouseActivityRoles wires `worker clickhouse-activity-roles`, as
+// stellar_owner: it adds the roles RoleTrade and RoleContractCall to the
+// account_activity rows written before the worker set them, one month at a
+// time. With --check it compares a range's roles with what the operations
+// and trades tables give.
+func setupClickhouseActivityRoles(fs *flag.FlagSet) runFunc {
+	current := fs.Bool("current", false, "also the month the pipeline is writing: stop stellar-clickhouse-ingest first")
+	check := fs.Bool("check", false, "only compare the roles of the ledgers [--from, --to] with what the tables give")
+	from := fs.Uint("from", 0, "with --check: first ledger (default: 10,000 ledgers before --to)")
+	to := fs.Uint("to", 0, "with --check: last ledger (default: the pipeline's cursor)")
+	return func(ctx context.Context, env runEnv) error {
+		if *from > math.MaxUint32 || *to > math.MaxUint32 {
+			return fmt.Errorf("%w: --from and --to are ledgers", errUsage)
+		}
+		cfg, log, err := loadConfig(env.configPath, env.stderr)
+		if err != nil {
+			return err
+		}
+		ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		conn, err := clickhouse.OpenLong(ctx, cfg.ClickHouse, true)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		if !*check {
+			res, err := clickhouse.FillActivityRoles(ctx, conn, clickhouse.ActivityRolesOptions{Current: *current, Log: log})
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(env.stdout, "months %d: %d done before, %d done now; %d rows\n", res.Months, res.DoneBefore, res.Done, res.Rows)
+			if res.Skipped != "" {
+				fmt.Fprintf(env.stdout, "left out %s, the month the pipeline is writing: stop it, then rerun with --current\n", res.Skipped)
+			}
+			return nil
+		}
+		b := uint32(*to)
+		if b == 0 {
+			if b, _, err = clickhouse.ReadCursor(ctx, conn, clickhouse.Pipeline); err != nil {
+				return err
+			}
+		}
+		a := uint32(*from)
+		if a == 0 {
+			a = max(b, 10_000) - 9_999
+		}
+		if a > b {
+			return fmt.Errorf("%w: --from %d is above --to %d", errUsage, a, b)
+		}
+		c, err := clickhouse.CheckActivityRoles(ctx, conn, a, b)
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(env.stdout, "ledgers %d to %d: %d rows, %d with other roles than the tables give\n", c.From, c.To, c.Rows, c.Differ)
+		if c.Differ > 0 {
+			return fmt.Errorf("for example %s", c.Example)
+		}
+		return nil
+	}
+}

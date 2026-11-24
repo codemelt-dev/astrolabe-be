@@ -15,12 +15,27 @@ import (
 // these roles as a bitmask. Addresses are G… (muxed accounts as their G…)
 // and C…; claimable balances and liquidity pools are left out.
 const (
-	RoleSource      uint8 = 1 << iota // the transaction's source
-	RoleFeePayer                      // pays the fee: the source, or a fee bump's payer
-	RoleOpSource                      // an operation's source
-	RoleParticipant                   // named in an operation's body: destination, trustor, sponsor, claimant, contract, argument, authorizer…
-	RoleTransfer                      // either side of a token transfer
-	RoleChanged                       // owns a ledger entry the transaction changed: an account, trustline, offer, data entry, or a contract's storage and SAC balances
+	RoleSource       uint8 = 1 << iota // the transaction's source
+	RoleFeePayer                       // pays the fee: the source, or a fee bump's payer
+	RoleOpSource                       // an operation's source
+	RoleParticipant                    // named in an operation's body: destination, trustor, sponsor, claimant, contract, argument, authorizer…
+	RoleTransfer                       // either side of a token transfer
+	RoleChanged                        // owns a ledger entry the transaction changed: an account, trustline, offer, data entry, or a contract's storage and SAC balances
+	RoleTrade                          // trades: the source of an offer or liquidity pool operation, or either side of a fill
+	RoleContractCall                   // the source of an invoke_host_function, extend_footprint_ttl or restore_footprint operation
+)
+
+// The operations that give their source RoleTrade or RoleContractCall,
+// whether or not the transaction succeeded. The clickhouse package derives
+// the same bits from the operations and trades tables (activity_roles.go).
+var (
+	TradeOperations = []xdr.OperationType{
+		xdr.OperationTypeManageSellOffer, xdr.OperationTypeCreatePassiveSellOffer, xdr.OperationTypeManageBuyOffer,
+		xdr.OperationTypeLiquidityPoolDeposit, xdr.OperationTypeLiquidityPoolWithdraw,
+	}
+	ContractCallOperations = []xdr.OperationType{
+		xdr.OperationTypeInvokeHostFunction, xdr.OperationTypeExtendFootprintTtl, xdr.OperationTypeRestoreFootprint,
+	}
 )
 
 // ActivityRow is one address's part in one transaction.
@@ -43,9 +58,9 @@ func (s activitySet) add(address string, role uint8) {
 }
 
 // activityOf collects a transaction's addresses: from the envelope, the
-// operations' bodies and the ledger entries it changed. Token transfers are
-// added per ledger (activityRows).
-func activityOf(tx ingest.LedgerTransaction, ops []OperationRow, passphrase string) (activitySet, error) {
+// operations, the fills and the ledger entries it changed. Token transfers
+// are added per ledger (activityRows).
+func activityOf(tx ingest.LedgerTransaction, ops []OperationRow, trades []TradeRow, passphrase string) (activitySet, error) {
 	s := activitySet{tx: tx.Index, roles: map[string]uint8{}}
 	src, _, err := accountStrings(tx.Envelope.SourceAccount())
 	if err != nil {
@@ -59,9 +74,19 @@ func activityOf(tx ingest.LedgerTransaction, ops []OperationRow, passphrase stri
 	s.add(fee, RoleFeePayer)
 	for i, op := range tx.Envelope.Operations() {
 		s.add(ops[i].SourceAccount, RoleOpSource)
+		if slices.Contains(TradeOperations, op.Body.Type) {
+			s.add(ops[i].SourceAccount, RoleTrade)
+		}
+		if slices.Contains(ContractCallOperations, op.Body.Type) {
+			s.add(ops[i].SourceAccount, RoleContractCall)
+		}
 		if err := walkAddresses(reflect.ValueOf(op.Body), func(a string) { s.add(a, RoleParticipant) }); err != nil {
 			return s, err
 		}
+	}
+	for _, t := range trades {
+		s.add(t.Seller, RoleTrade)
+		s.add(t.Buyer, RoleTrade)
 	}
 	changes, err := tx.GetChanges()
 	if err != nil {

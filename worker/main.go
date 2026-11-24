@@ -82,6 +82,8 @@ func commands() []command {
 			setup: setupClickhouseBackfill},
 		{name: "clickhouse-daily-stats", summary: "clickhouse host: compute daily_stats for a range of days once, after a backfill",
 			setup: setupClickhouseDailyStats},
+		{name: "clickhouse-activity-roles", summary: "clickhouse host: add the trade and contract-call roles to account_activity's older rows, once (--check: compare a range)",
+			setup: setupClickhouseActivityRoles},
 		{name: "clickhouse-check", summary: "clickhouse host: a range's consistency (default: the cursor's last 10,000 ledgers)",
 			setup: setupClickhouseCheck},
 		{name: "state-copy", summary: "psql host: copy the current state into ClickHouse, compute assets and top holders (--snapshot: and the day's snapshots)",

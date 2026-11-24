@@ -247,7 +247,7 @@ func TestActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := activityOf(tx, ops, network.PublicNetworkPassphrase)
+	set, err := activityOf(tx, ops, nil, network.PublicNetworkPassphrase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,12 +285,49 @@ func TestActivity(t *testing.T) {
 	bump.Envelope = xdr.TransactionEnvelope{Type: xdr.EnvelopeTypeEnvelopeTypeTxFeeBump, FeeBump: &xdr.FeeBumpTransactionEnvelope{
 		Tx: xdr.FeeBumpTransaction{FeeSource: muxedAcct(6), Fee: 200,
 			InnerTx: xdr.FeeBumpTransactionInnerTx{Type: xdr.EnvelopeTypeEnvelopeTypeTx, V1: &inner}}}}
-	set, err = activityOf(bump, ops, network.PublicNetworkPassphrase)
+	set, err = activityOf(bump, ops, nil, network.PublicNetworkPassphrase)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if set.roles[testAddress(6)] != RoleFeePayer || set.roles[testAddress(1)]&(RoleSource|RoleFeePayer) != RoleSource {
 		t.Fatalf("fee bump roles %v", set.roles)
+	}
+}
+
+// Trades and contract calls: the sources of offer, pool and Soroban
+// operations, failed or not, and both sides of every fill (a pool's L… left
+// out).
+func TestActivityTradesAndCalls(t *testing.T) {
+	opSource := muxedAcct(2)
+	offer := xdr.Operation{SourceAccount: &opSource, Body: xdr.OperationBody{Type: xdr.OperationTypeManageSellOffer,
+		ManageSellOfferOp: &xdr.ManageSellOfferOp{Selling: xdr.MustNewNativeAsset(), Buying: xdr.MustNewCreditAsset("USD", testAddress(9)),
+			Amount: 10, Price: xdr.Price{N: 1, D: 1}}}}
+	failed := testTx(4, muxedAcct(1), []xdr.Operation{offer}, false, nil, nil, nil, nil)
+	ops, err := operationRowsOf(failed, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool := "L" + testAddress(5)[1:]
+	set, err := activityOf(failed, ops, []TradeRow{{Seller: testAddress(3), Buyer: testAddress(2)}, {Seller: pool, Buyer: testAddress(2)}},
+		network.PublicNetworkPassphrase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if set.roles[testAddress(2)] != RoleOpSource|RoleTrade || set.roles[testAddress(3)] != RoleTrade ||
+		set.roles[testAddress(1)]&(RoleTrade|RoleContractCall) != 0 || set.roles[pool] != 0 {
+		t.Fatalf("trade roles %v", set.roles)
+	}
+
+	call := testTx(5, muxedAcct(1), []xdr.Operation{invokeContractOp(nil, contractAddr(1), "get")}, true,
+		[]xdr.OperationResult{invokeResult(xdr.InvokeHostFunctionResultCodeInvokeHostFunctionSuccess)}, nil, nil, nil)
+	if ops, err = operationRowsOf(call, 50); err != nil {
+		t.Fatal(err)
+	}
+	if set, err = activityOf(call, ops, nil, network.PublicNetworkPassphrase); err != nil {
+		t.Fatal(err)
+	}
+	if set.roles[testAddress(1)] != RoleSource|RoleFeePayer|RoleOpSource|RoleContractCall || set.roles[contractStr(1)] != RoleParticipant {
+		t.Fatalf("call roles %v", set.roles)
 	}
 }
 

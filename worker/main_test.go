@@ -80,7 +80,7 @@ func TestCLIUsageAndVersion(t *testing.T) {
 func TestCLISubcommands(t *testing.T) {
 	want := []string{"lake", "ingest", "galexie-start", "watchdog", "gapcheck", "bootstrap", "migrate",
 		"reindex", "dev-feed", "smoke-archive", "archive-backfill", "clickhouse-migrate", "clickhouse-init", "clickhouse-ingest", "clickhouse-backfill",
-		"clickhouse-daily-stats", "clickhouse-check", "state-copy"}
+		"clickhouse-daily-stats", "clickhouse-activity-roles", "clickhouse-check", "state-copy"}
 	var got []string
 	for _, c := range commands() {
 		got = append(got, c.name)
@@ -89,18 +89,19 @@ func TestCLISubcommands(t *testing.T) {
 		t.Fatalf("subcommands %v, want %v", got, want)
 	}
 	args := map[string][]string{
-		"galexie-start":          {"--out", "/run/x.env"},
-		"bootstrap":              {"--history-only", "--at", "100"},
-		"reindex":                {"--from", "2", "--to", "3", "--source", "archive", "--dry-run"},
-		"dev-feed":               {"--start", "5", "--end", "9", "--speed", "2"},
-		"smoke-archive":          {"--bucket", "scratch", "--delete-probe-only"},
-		"archive-backfill":       {"--from", "2", "--to", "3", "--dry-run"},
-		"clickhouse-migrate":     {"--check"},
-		"clickhouse-init":        {"--at", "100"},
-		"clickhouse-check":       {"--from", "2", "--to", "3"},
-		"clickhouse-backfill":    {"--from", "2", "--to", "3", "--parallel", "1"},
-		"clickhouse-daily-stats": {"--from", "2020-01-01", "--to", "2020-01-02"},
-		"state-copy":             {"--snapshot"},
+		"galexie-start":             {"--out", "/run/x.env"},
+		"bootstrap":                 {"--history-only", "--at", "100"},
+		"reindex":                   {"--from", "2", "--to", "3", "--source", "archive", "--dry-run"},
+		"dev-feed":                  {"--start", "5", "--end", "9", "--speed", "2"},
+		"smoke-archive":             {"--bucket", "scratch", "--delete-probe-only"},
+		"archive-backfill":          {"--from", "2", "--to", "3", "--dry-run"},
+		"clickhouse-migrate":        {"--check"},
+		"clickhouse-init":           {"--at", "100"},
+		"clickhouse-check":          {"--from", "2", "--to", "3"},
+		"clickhouse-backfill":       {"--from", "2", "--to", "3", "--parallel", "1"},
+		"clickhouse-daily-stats":    {"--from", "2020-01-01", "--to", "2020-01-02"},
+		"clickhouse-activity-roles": {"--check", "--from", "2", "--to", "3"},
+		"state-copy":                {"--snapshot"},
 	}
 	for _, name := range want[1:] {
 		// Every command is implemented: the flags parse and the missing
