@@ -6,7 +6,7 @@ The data layer runs its own ingestion of the Stellar network. It does not depend
 
 - **Every ledger since go-live is ingested** by a self-hosted Galexie (SDF's ledger exporter) with an embedded captive stellar-core, and kept in full in an S3-compatible archive bucket (SEP-54 format).
 - **The current state** (accounts, trustlines, offers, claimable balances, liquidity pools, contracts, contract data and code) goes into **PostgreSQL** and is served as a public, read-only **REST API**.
-- **The history** (transactions, operations, events, token transfers, contract calls) goes into **ClickHouse**, which also computes asset rankings, top holders and daily statistics, and is served as public, read-only **SQL**.
+- **The history** (transactions, operations, events, token transfers, contract calls) goes into **ClickHouse**, covering every ledger from genesis (ledger 2, 30 September 2015) to the network tip. ClickHouse also computes asset rankings, top holders and daily statistics, and is served as public, read-only **SQL**.
 
 ## Architecture
 

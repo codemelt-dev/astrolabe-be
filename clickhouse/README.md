@@ -1,6 +1,6 @@
 # clickhouse host
 
-The clickhouse host stores the explorer's **history** in **ClickHouse 26.8 (LTS)**: every transaction, operation, event, token transfer and contract call since go-live, kept indefinitely. It also holds a daily copy of the current state, from which it computes the **asset list, supplies and top holders** (with daily snapshots), and **daily network statistics**.
+The clickhouse host stores the explorer's **history** in **ClickHouse 26.8 (LTS)**: every transaction, operation, event, token transfer and contract call since genesis (ledger 2, 30 September 2015), kept indefinitely. It also holds a daily copy of the current state, from which it computes the **asset list, supplies and top holders** (with daily snapshots), and **daily network statistics**.
 
 The history is written by the worker's ClickHouse pipeline (`worker clickhouse-ingest`), which decodes every ledger with the same code as the PostgreSQL pipeline. The psql host's Caddy publishes ClickHouse to the internet as **read-only SQL**. `lab clickhouse` sets the host up; `lab clickhouse check` reports its state and health.
 
@@ -51,9 +51,9 @@ The history is written by the worker's ClickHouse pipeline (`worker clickhouse-i
   - the galexie host needs no extra process, port or memory;
   - a slow or stopped ClickHouse can never hold back the PostgreSQL pipeline or the lake's pruning;
   - catch-up is not slowed by the archive bucket's provider, whose object storage was observed to stall on single objects for minutes, which blocks strictly in-order reading;
-  - rebuilds and a future backfill run where the data lands.
+  - rebuilds and the full-history backfill run where the data lands.
 
-  The archive bucket is only used once, to find the go-live ledger where the history starts. Data integrity does not depend on the source: every ledger is fully decoded, and the zstd frame checksums, the header hash and the hash chain to the previous ledger are verified.
+  The archive bucket is only used once, to find the go-live ledger where the live pipeline starts; everything before it was loaded by the backfill (see [Full history](#full-history)). Data integrity does not depend on the source: every ledger is fully decoded, and the zstd frame checksums, the header hash and the hash chain to the previous ledger are verified.
 - **One decoder.** The ClickHouse pipeline runs the worker's `processLedger` in history mode (`explorer.HistoryProcessor`); the PostgreSQL pipeline runs the same function in state mode. Both see a ledger identically.
 - **Close time on every row**, so time series need no join; all events are kept, including fee and refund events, with every topic.
 - **Nothing expires.** History grows by about 2 GiB a day.
@@ -119,6 +119,19 @@ Batches hold at most 500 ledgers and 512 MiB; at the network tip a batch is one 
 **Exactly-once without transactions.** ClickHouse has no multi-table transactions, so a crash between steps 2 and 3 can leave rows above the cursor. Rows above the cursor are therefore never trusted: on start-up and after a failed commit, the sink deletes them from every table (`DELETE FROM stellar.<table> WHERE ledger_sequence > <cursor>`) and resumes from the cursor. This is safe because this one service is the only writer.
 
 **Starting point.** `worker clickhouse-init` seeds the cursor once, by default just before the archive bucket's oldest ledger (go-live). `--at <sequence>` starts from any other ledger.
+
+### Full history
+
+Everything before go-live was loaded by a backfill that reads the same AWS public lake with the same decoder and the same sink as the live pipeline, so every ledger is checked and stored the same way whichever path wrote it. The range from ledger 2 to go-live was split into 65 chunks of one million ledgers, run in parallel. Each chunk keeps its own cursor in `ingest_state` under the pipeline name `backfill:<first>-<last>`, so a stopped or restarted chunk resumes where it left off. The backfill finished on 14 November 2026. This query, on the public SQL endpoint, checks the result over the whole history:
+
+```sql
+SELECT min(sequence) AS first, max(sequence) AS last, count() AS ledgers,
+       (max(sequence) - min(sequence) + 1) - uniqExact(sequence) AS missing,
+       count() - uniqExact(sequence) AS duplicates
+FROM stellar.ledgers
+```
+
+It returns `first` 2, `missing` 0 and `duplicates` 0.
 
 ## State copy, assets and top holders
 
@@ -307,7 +320,7 @@ Typical responses: a halted pipeline is deterministic, so it needs a fixed worke
 
 ### Rebuilding
 
-Everything except the snapshot tables can be rebuilt from the AWS public lake. A rebuilt server runs `lab clickhouse` (with the previous secrets restored, or a new bundle for the psql host), which migrates, seeds the cursor at go-live and catches up at about 28 ledgers per second: about 10 minutes per day of history, about 2.5 days per year. The next state copy refills the rankings. `asset_snapshots` and `holder_snapshots` from before the rebuild are lost, because nothing else records the state as it was on each day; they should be exported first if they matter.
+Everything except the snapshot tables can be rebuilt from the AWS public lake. A rebuilt server runs `lab clickhouse` (with the previous secrets restored, or a new bundle for the psql host), which migrates, seeds the cursor at go-live and catches up at about 28 ledgers per second: about 10 minutes per day of history, about 2.5 days per year. History before go-live is then reloaded by running the backfill again. The next state copy refills the rankings. `asset_snapshots` and `holder_snapshots` from before the rebuild are lost, because nothing else records the state as it was on each day; they should be exported first if they matter.
 
 A deliberate re-ingest (after a decoder fix) stops the pipeline, drops the `stellar` database and runs `lab clickhouse` again.
 
@@ -317,7 +330,6 @@ A deliberate re-ingest (after a decoder fix) stops the pipeline, drops the `stel
 
 ## Limitations
 
-- **History before go-live is not loaded yet.** The pipeline starts at go-live. A backfill can read the AWS public lake from an earlier ledger with the same code (`worker clickhouse-init --at <ledger>` on a fresh database), but only back to Protocol 23: the decoder accepts `LedgerCloseMeta` V2 only (`worker/sep54/decode.go`), and earlier ledgers use V0/V1. A backfill to genesis needs decoder support for the older formats first.
 - **Worker deploys on this host are manual** (see above); the galexie host has deploy scripts.
 
 ## Development
