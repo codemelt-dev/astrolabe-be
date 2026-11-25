@@ -31,7 +31,7 @@ PostgreSQL state ───▶│ state-copy (daily) ──▶ ClickHouse: assets
 ## Decoding and validation
 
 1. **Read:** SEP-54 objects (one zstd-compressed `LedgerCloseMetaBatch` per ledger). Object integrity is checked by CRC32C, or the ETag where the store keeps no CRC32C.
-2. **Decode:** zstd with frame checksums (256 MiB cap), then `xdr.SafeUnmarshal`. The batch must hold exactly the requested ledger, as `LedgerCloseMeta` **V2** (Protocol 23 and later), and `sha256(header)` must equal the ledger hash.
+2. **Decode:** zstd with frame checksums (256 MiB cap), then `xdr.SafeUnmarshal`. The batch must hold exactly the requested ledger, as `LedgerCloseMeta` V0, V1 or V2 (every protocol since genesis), and `sha256(header)` must equal the ledger hash.
 3. **Chain:** each ledger's previous hash must equal the cursor's hash.
 4. **Process:** transactions and ledger-entry changes are read with the SDK's ingest readers; token movements (transfers, mints, burns, clawbacks, fees) come from the SDK's CAP-67 token-transfer processor; Stellar Asset Contract balances from its `sac` helpers. ScVals are encoded as typed JSON (`explorer/scval.go`), operation details by a reflection-based XDR-to-JSON encoder (`explorer/xdrjson.go`), and contract interfaces by parsing the Wasm `contractspecv0` section (`explorer/wasmspec.go`).
 
@@ -44,7 +44,7 @@ A ledger that fails validation from one source is retried from the next. If ever
 | Ledgers | PostgreSQL and ClickHouse | one row per ledger |
 | Accounts, trustlines, data entries, offers, claimable balances, liquidity pools | PostgreSQL | current state, with evictions handled |
 | Contract instances, contract data, contract code (Wasm and decoded spec), TTLs | PostgreSQL | current state, including archived and evicted entries |
-| Transactions, operations (all types, details as JSON, result codes, Soroban return values) | ClickHouse | history since go-live |
+| Transactions, operations (all types, details as JSON, result codes, Soroban return values) | ClickHouse | history since genesis |
 | Contract and system events (including fee and refund events, every topic) | ClickHouse | diagnostic events are not stored |
 | Token transfers, mints, burns, clawbacks, fees | ClickHouse | plus a per-account view of both sides |
 | Contract calls (top-level invocations: contract, function, caller, outcome, return value) | ClickHouse | |
